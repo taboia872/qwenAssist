@@ -37,7 +37,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -58,8 +57,6 @@ public class MainActivity extends Activity {
 
     private WebView chatWebView = null;
     private ImageButton btnMenuToggle = null;
-    private EditText urlBar = null;
-    private ImageButton btnGo = null;
     private ImageButton btnReload = null;
     private ImageButton btnClearData = null;
     private ImageButton btnSettings = null;
@@ -319,7 +316,7 @@ public class MainActivity extends Activity {
         // Cancel auto-hide while menu is open
         if (autoHideRunnable != null) autoHideHandler.removeCallbacks(autoHideRunnable);
         // Show action buttons immediately (no fade)
-        int[] viewIds = {R.id.urlBar, R.id.btnGo, R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
+        int[] viewIds = {R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
         for (int viewId : viewIds) {
             View v = menuBar.findViewById(viewId);
             v.setAlpha(1f);
@@ -351,7 +348,7 @@ public class MainActivity extends Activity {
             .translationX(slideDistance)
             .setDuration(500)
             .withEndAction(() -> {
-                int[] viewIds = {R.id.urlBar, R.id.btnGo, R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
+                int[] viewIds = {R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
                 for (int viewId : viewIds) {
                     View v = menuBar.findViewById(viewId);
                     v.setVisibility(View.GONE);
@@ -394,8 +391,6 @@ public class MainActivity extends Activity {
         });
         registerForContextMenu(chatWebView);
         btnMenuToggle = findViewById(R.id.btnMenuToggleInner);
-        urlBar = findViewById(R.id.urlBar);
-        btnGo = findViewById(R.id.btnGo);
         btnReload = findViewById(R.id.btnReload);
         btnClearData = findViewById(R.id.btnClearData);
         btnSettings = findViewById(R.id.btnSettings);
@@ -406,18 +401,6 @@ public class MainActivity extends Activity {
         chatCookieManager = CookieManager.getInstance();
         chatCookieManager.setAcceptCookie(true);
         chatCookieManager.setAcceptThirdPartyCookies(chatWebView, true);
-
-        // URL bar: Enter key loads URL
-        urlBar.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_GO) {
-                loadUrlFromBar();
-                return true;
-            }
-            return false;
-        });
-
-        // Go button
-        btnGo.setOnClickListener(v -> loadUrlFromBar());
 
         chatWebView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -481,7 +464,6 @@ public class MainActivity extends Activity {
                     view.evaluateJavascript(buildFallbackHardeningJS(), null);
                     view.evaluateJavascript(buildFallbackTzSpoofJS(), null);
                 }
-                urlBar.setText(url);
             }
 
             @Override
@@ -492,7 +474,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                urlBar.setText(url);
                 if (chatCookieManager != null) {
                     chatCookieManager.flush();
                 }
@@ -599,7 +580,6 @@ public class MainActivity extends Activity {
         } else {
             chatWebView.loadUrl(URL_TO_LOAD);
         }
-        urlBar.setText(URL_TO_LOAD);
         // Start auto-hide countdown for arrow button
         scheduleAutoHide();
     }
@@ -617,22 +597,6 @@ public class MainActivity extends Activity {
             }
         }
         return super.onKeyDown(keyCode, event);
-    }
-
-    private void loadUrlFromBar() {
-        String input = urlBar.getText().toString().trim();
-        if (input.isEmpty()) return;
-        if (!input.startsWith("http://") && !input.startsWith("https://")) {
-            input = "https://" + input;
-        }
-        if (dntEnabled) {
-            java.util.Map<String, String> extraHeaders = new java.util.HashMap<>();
-            extraHeaders.put("DNT", "1");
-            chatWebView.loadUrl(input, extraHeaders);
-        } else {
-            chatWebView.loadUrl(input);
-        }
-        hideMenu();
     }
 
     public void resetChat() {

@@ -33,34 +33,6 @@
             android:src="@drawable/ic_arrow_left"
             android:contentDescription="Menu" />
 
-        <!-- URL input field — for testing different services -->
-        <EditText
-            android:id="@+id/urlBar"
-            android:layout_width="120dp"
-            android:layout_height="36dp"
-            android:hint="URL"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#88FFFFFF"
-            android:textSize="12sp"
-            android:singleLine="true"
-            android:imeOptions="actionGo"
-            android:background="@android:color/transparent"
-            android:paddingStart="6dp"
-            android:paddingEnd="2dp"
-            android:layout_marginStart="2dp"
-            android:visibility="gone" />
-
-        <!-- Go button — load URL from bar -->
-        <ImageButton
-            android:id="@+id/btnGo"
-            android:background="@android:color/transparent"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="8dp"
-            android:src="@drawable/ic_arrow_left"
-            android:contentDescription="Go"
-            android:rotation="180"
-            android:visibility="gone" />
 
         <ImageButton
             android:id="@+id/btnReload"
