@@ -1,0 +1,47 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create releases and attach assets on tag pushes
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+    - name: Set up JDK 17
+      uses: actions/setup-java@v5
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    - name: Setup Gradle
+      # gradle/actions/setup-gradle v4 still declares node20 in its metadata;
+      # the runner force-runs it on node24. v5 GA is pending — once released,
+      # bump to @v5 to clear the remaining deprecation warning.
+      uses: gradle/actions/setup-gradle@v4
+    - name: Build Debug APK
+      # Signed with the runner's auto-generated debug key — every build has a
+      # DIFFERENT signature, so updating requires uninstalling the previous
+      # install. This repo is a test lab / template for forks; forks that want
+      # in-place updates should add a persistent keystore via Secrets.
+      run: ./gradlew assembleDebug --stacktrace --info
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v6
+      with:
+        name: QwenAssist
+        path: app/build/outputs/apk/debug/QwenAssist-*.apk
+    - name: Attach APK to GitHub Release
+      # Only runs when the push is a version tag (e.g. v1.3.4). Creates the release
+      # if it doesn't exist and attaches the APK as a downloadable asset.
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: app/build/outputs/apk/debug/QwenAssist-*.apk
+        generate_release_notes: true

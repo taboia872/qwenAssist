@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name" translatable="false">QwenAssist</string>
+    <string name="error_copy">Please select and copy text manually</string>
+    <!-- StarDialog -->
+    <string name="dialog_OK_button">OK</string>
+    <string name="dialog_NO_button">No</string>
+    <string name="dialog_Later_button">Maybe later</string>
+    <string name="dialog_StarOnGitHub">Do you like this app? Please give a star on GitHub.</string>
+    <string name="download">Download started:</string>
+    <string name="all_urls">All URLs allowed</string>
+    <string name="urls_restricted">URLs restricted</string>
+    <string name="url_copied">URL copied</string>
+    <!-- Menu -->
+    <string name="confirm_clear_data">Clear all data? This will erase cookies, cache, history, and local storage.</string>
+    <string name="confirm_clear_title">Clear all data</string>
+    <string name="confirm_yes">Clear</string>
+    <string name="confirm_no">Cancel</string>
+    <string name="data_cleared">All data cleared. Reloading…</string>
+    <string name="about_title">About QwenAssist</string>
+    <string name="about_message">QwenAssist v1.0.0\n\nA hardened WebView wrapper for Qwen Chat (chat.qwen.ai).\n\nFeatures: URL bar, settings dialog with toggles for HTTPS-only, domain whitelist, WebRTC, sensors, DNT, timezone spoofing (IANA-aware, DST-correct, full Date surface spoof via document_start injection), WebGL GPU spoofing, CPU/RAM spoofing (4/4), auto-hide arrow button, glassmorphism slide menu.\n\nNote: X-Requested-With header cannot be stripped without breaking page loading (Android WebView limitation).\n\nBased on testAssist / gptassist by @woheller69 and geminiAssist by @AcideFluorhydrique.\n\nLicense: GPL-3.0</string>
+</resources>

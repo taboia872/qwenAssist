@@ -1,0 +1,735 @@
+package io.github.qwenassist;
+
+import static android.webkit.WebView.HitTestResult.IMAGE_TYPE;
+import static android.webkit.WebView.HitTestResult.SRC_ANCHOR_TYPE;
+import static android.webkit.WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.util.Log;
+import android.view.ContextMenu;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.webkit.ConsoleMessage;
+import android.webkit.CookieManager;
+import android.webkit.URLUtil;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebStorage;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.Toast;
+
+import androidx.webkit.URLUtilCompat;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import androidx.webkit.ScriptHandler;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Collections;
+import java.util.Scanner;
+import java.util.Set;
+
+public class MainActivity extends Activity {
+
+    private WebView chatWebView = null;
+    private ImageButton btnMenuToggle = null;
+    private EditText urlBar = null;
+    private ImageButton btnGo = null;
+    private ImageButton btnReload = null;
+    private ImageButton btnClearData = null;
+    private ImageButton btnSettings = null;
+    private ImageButton btnAbout = null;
+    private LinearLayout menuBar = null;
+    private boolean menuVisible = false;
+    private WebSettings chatWebSettings = null;
+    private SharedPreferences prefs = null;
+    private CookieManager chatCookieManager = null;
+    private final Context context = this;
+    private SwipeTouchListener swipeTouchListener;
+    private static final String TAG = "qwenAssist";
+    private static final String URL_TO_LOAD = "https://chat.qwen.ai/";
+    // Domain whitelist for restricted mode. Subdomains of these are allowed.
+    private static final String[] ALLOWED_DOMAINS = {
+            "qwen.ai",             // chat.qwen.ai, pre-chat.qwen.ai (chat + API)
+            "alicdn.com",          // assets/g/img.alicdn.com (static CDN)
+            "alibabacloud.com",    // Alibaba Cloud backend endpoints
+            "googletagmanager.com" // analytics loaded by the page shell
+    };
+
+    private static boolean isAllowedDomain(String host) {
+        if (host == null) return false;
+        for (String d : ALLOWED_DOMAINS) {
+            if (host.equals(d) || host.endsWith("." + d)) return true;
+        }
+        return false;
+    }
+    private static boolean restricted = true;
+    private static boolean webrtcBlocked = true;
+    private static boolean sensorsBlocked = true;
+    private static boolean dntEnabled = true;
+    private static boolean timezoneSpoofed = true;
+    private static String spoofedTimezone = "UTC";
+    private Handler autoHideHandler = new Handler();
+    private Runnable autoHideRunnable;
+
+    private ValueCallback<Uri[]> mUploadMessage;
+    private static final int FILE_CHOOSER_REQUEST_CODE = 1;
+
+    // Script handles injected via addDocumentStartJavaScript (API-neutral via
+    // androidx.webkit). Each is registered once after WebView configuration so
+    // they fire before any page script on every navigation, matching notme's
+    // document_start semantics. Fallback: evaluateJavascript in onPageStarted
+    // on platforms where DOCUMENT_START_SCRIPT isn't supported.
+    private ScriptHandler tzScriptHandler = null;
+    private ScriptHandler hardeningScriptHandler = null;
+    private static final Set<String> ALLOW_ALL_ORIGINS = Collections.singleton("*");
+
+    // Pick a random timezone once per session if timezone spoofing is on.
+    // Offset/DST are resolved at runtime by Intl.DateTimeFormat in the JS.
+    private static String pickRandomTimezone() {
+        String[] timezones = {
+            "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+            "America/Sao_Paulo", "America/Toronto", "America/Vancouver",
+            "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Madrid", "Europe/Rome",
+            "Europe/Amsterdam", "Europe/Stockholm", "Europe/Warsaw", "Europe/Istanbul",
+            "Asia/Tokyo", "Asia/Singapore", "Asia/Seoul", "Asia/Bangkok",
+            "Asia/Dubai", "Asia/Kolkata", "Asia/Hong_Kong",
+            "Australia/Sydney", "Australia/Melbourne"
+        };
+        return timezones[(int) (Math.random() * timezones.length)];
+    }
+
+    // Read a text asset into a String. Assets live in app/src/main/assets/.
+    private String readAsset(String filename) {
+        try (InputStream is = getAssets().open(filename)) {
+            Scanner sc = new Scanner(is, "UTF-8").useDelimiter("\\A");
+            return sc.hasNext() ? sc.next() : "";
+        } catch (IOException e) {
+            Log.e(TAG, "readAsset(" + filename + "): " + e.getMessage());
+            return "";
+        }
+    }
+
+    // Build the combined tz spoof script: payload prefix + tzspoof.js body.
+    // The prefix injects window.__TA_SETTINGS__ that the JS reads and deletes.
+    private String buildTzSpoofScript() {
+        if (timezoneSpoofed && "UTC".equals(spoofedTimezone)) {
+            spoofedTimezone = pickRandomTimezone();
+        }
+        String tz = timezoneSpoofed ? spoofedTimezone : "";
+        String json = "{\"timezone\":\"" + tz + "\",\"tzEnabled\":" + timezoneSpoofed + "}";
+        String js = readAsset("tzspoof.js");
+        return "window.__TA_SETTINGS__ = " + json + ";\n" + js;
+    }
+
+    // Build the combined hardening script: payload prefix + hardening.js body.
+    private String buildHardeningScript() {
+        String json = "{\"sensorsBlocked\":" + sensorsBlocked
+            + ",\"dntEnabled\":" + dntEnabled
+            + ",\"webrtcBlocked\":" + webrtcBlocked + "}";
+        String js = readAsset("hardening.js");
+        return "window.__TA_SETTINGS__ = " + json + ";\n" + js;
+    }
+
+    // Combined hardening script for fallback injection via evaluateJavascript on
+    // WebViews that don't support DOCUMENT_START_SCRIPT. Same content, prefixed
+    // with javascript: so loadUrl accepts it.
+    private String buildFallbackHardeningJS() {
+        return "javascript:" + buildHardeningScript();
+    }
+    private String buildFallbackTzSpoofJS() {
+        return "javascript:" + buildTzSpoofScript();
+    }
+
+    // Register or refresh the document_start scripts. Toggle changes in settings
+    // call this so the new payload takes effect without re-reading the assets.
+    private void installDocumentStartScripts() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        // Remove previous handlers so we can re-register with a fresh payload
+        // (the script source string is immutable post-registration, and toggles
+        // can change the payload between settings rounds).
+        if (tzScriptHandler != null) { tzScriptHandler.remove(); tzScriptHandler = null; }
+        if (hardeningScriptHandler != null) { hardeningScriptHandler.remove(); hardeningScriptHandler = null; }
+        try {
+            hardeningScriptHandler = WebViewCompat.addDocumentStartJavaScript(
+                chatWebView, buildHardeningScript(), ALLOW_ALL_ORIGINS);
+        } catch (Exception e) { Log.w(TAG, "hardening script registration: " + e.getMessage()); }
+        try {
+            tzScriptHandler = WebViewCompat.addDocumentStartJavaScript(
+                chatWebView, buildTzSpoofScript(), ALLOW_ALL_ORIGINS);
+        } catch (Exception e) { Log.w(TAG, "tz spoof script registration: " + e.getMessage()); }
+    }
+
+    // True when addDocumentStartJavaScript is supported on this WebView — the
+    // fallback (evaluateJavascript in onPageStarted) only runs when this is false.
+    private boolean documentStartSupported() {
+        return WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT);
+    }
+
+    @Override
+    protected void onPause() {
+        if (chatCookieManager != null) chatCookieManager.flush();
+        swipeTouchListener = null;
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        // Arrow tab click — toggle menu open/closed
+        btnMenuToggle.setOnClickListener(v -> {
+            if (menuVisible) {
+                hideMenu();
+            } else {
+                showMenu();
+            }
+        });
+
+        // Reload page
+        btnReload.setOnClickListener(v -> {
+            chatWebView.reload();
+            hideMenu();
+        });
+
+        // Clear all data with confirmation dialog
+        btnClearData.setOnClickListener(v -> {
+            new AlertDialog.Builder(context)
+                .setTitle(R.string.confirm_clear_title)
+                .setMessage(R.string.confirm_clear_data)
+                .setPositiveButton(R.string.confirm_yes, (dialog, which) -> {
+                    resetChat();
+                    Toast.makeText(context, R.string.data_cleared, Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton(R.string.confirm_no, null)
+                .show();
+            hideMenu();
+        });
+
+        // Settings dialog — toggle privacy/security options
+        btnSettings.setOnClickListener(v -> {
+            String[] options = {
+                "Block non-HTTPS traffic",
+                "Block WebRTC",
+                "Block Device Orientation/Motion",
+                "Do Not Track (DNT)",
+                "Spoof Timezone (random)"
+            };
+            boolean[] checked = {restricted, webrtcBlocked, sensorsBlocked, dntEnabled, timezoneSpoofed};
+            new AlertDialog.Builder(context)
+                .setTitle("Settings")
+                .setMultiChoiceItems(options, checked, (dialog, which, isChecked) -> {
+                    if (which == 0) restricted = isChecked;
+                    else if (which == 1) webrtcBlocked = isChecked;
+                    else if (which == 2) sensorsBlocked = isChecked;
+                    else if (which == 3) dntEnabled = isChecked;
+                    else if (which == 4) {
+                        timezoneSpoofed = isChecked;
+                        if (!isChecked) spoofedTimezone = "UTC";
+                    }
+                })
+                .setPositiveButton("Apply & Reload", (dialog, which) -> {
+                    saveSettings();
+                    chatWebSettings.setUserAgentString(modUserAgent());
+                    // Re-register document_start scripts so the new toggle
+                    // values take effect (the script body embeds the payload).
+                    installDocumentStartScripts();
+                    chatWebView.reload();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+            hideMenu();
+        });
+
+        // About dialog
+        btnAbout.setOnClickListener(v -> {
+            new AlertDialog.Builder(context)
+                .setTitle(R.string.about_title)
+                .setMessage(R.string.about_message)
+                .setPositiveButton(R.string.dialog_OK_button, null)
+                .show();
+            hideMenu();
+        });
+
+        swipeTouchListener = new SwipeTouchListener(context) {
+            @Override
+            public void onSwipeBottom() {
+                if (!chatWebView.canScrollVertically(0)) {
+                    showArrow();
+                }
+            }
+            @Override
+            public void onSwipeTop() {
+                hideMenu();
+                menuBar.setVisibility(View.GONE);
+            }
+        };
+
+        chatWebView.setOnTouchListener(swipeTouchListener);
+    }
+
+    private void showArrow() {
+        if (menuVisible) return;
+        menuBar.setVisibility(View.VISIBLE);
+        scheduleAutoHide();
+    }
+
+    private void scheduleAutoHide() {
+        if (autoHideRunnable != null) autoHideHandler.removeCallbacks(autoHideRunnable);
+        autoHideRunnable = () -> {
+            if (!menuVisible) {
+                menuBar.setVisibility(View.GONE);
+            }
+        };
+        autoHideHandler.postDelayed(autoHideRunnable, 3000);
+    }
+
+    private int getArrowWidth() {
+        ImageButton arrow = menuBar.findViewById(R.id.btnMenuToggleInner);
+        return arrow.getWidth();
+    }
+
+    private void showMenu() {
+        menuVisible = true;
+        // Cancel auto-hide while menu is open
+        if (autoHideRunnable != null) autoHideHandler.removeCallbacks(autoHideRunnable);
+        // Show action buttons immediately (no fade)
+        int[] viewIds = {R.id.urlBar, R.id.btnGo, R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
+        for (int viewId : viewIds) {
+            View v = menuBar.findViewById(viewId);
+            v.setAlpha(1f);
+            v.setVisibility(View.VISIBLE);
+        }
+        // Measure full width now that all buttons are visible
+        menuBar.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        int fullWidth = menuBar.getMeasuredWidth();
+        int arrowWidth = getArrowWidth();
+        int slideDistance = fullWidth - arrowWidth;
+        // Slide container left by exactly the distance that reveals all buttons
+        menuBar.setTranslationX(slideDistance);
+        menuBar.animate()
+            .translationX(0f)
+            .setDuration(500)
+            .start();
+    }
+
+    private void hideMenu() {
+        if (!menuVisible) return;
+        menuVisible = false;
+        // Measure current full width (all buttons visible)
+        menuBar.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        int fullWidth = menuBar.getMeasuredWidth();
+        int arrowWidth = getArrowWidth();
+        int slideDistance = fullWidth - arrowWidth;
+        // Slide right by the distance that hides all buttons except the arrow
+        menuBar.animate()
+            .translationX(slideDistance)
+            .setDuration(500)
+            .withEndAction(() -> {
+                int[] viewIds = {R.id.urlBar, R.id.btnGo, R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
+                for (int viewId : viewIds) {
+                    View v = menuBar.findViewById(viewId);
+                    v.setVisibility(View.GONE);
+                }
+                menuBar.setTranslationX(0f);
+                // Start auto-hide countdown after menu closes
+                scheduleAutoHide();
+            })
+            .start();
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        prefs = getSharedPreferences("qwenassist_prefs", Context.MODE_PRIVATE);
+        loadSettings();
+
+        // Separate WebView data directory for isolation (sandboxing)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                WebView.setDataDirectorySuffix("qwen_assist");
+            } catch (Exception e) {
+                Log.w(TAG, "setDataDirectorySuffix failed: " + e.getMessage());
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            setTheme(android.R.style.Theme_DeviceDefault_DayNight);
+        }
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        chatWebView = findViewById(R.id.chatWebView);
+        // Detect when page is scrolled to top to reveal the arrow button
+        chatWebView.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            if (!menuVisible && chatWebView.getScrollY() == 0) {
+                showArrow();
+            }
+        });
+        registerForContextMenu(chatWebView);
+        btnMenuToggle = findViewById(R.id.btnMenuToggleInner);
+        urlBar = findViewById(R.id.urlBar);
+        btnGo = findViewById(R.id.btnGo);
+        btnReload = findViewById(R.id.btnReload);
+        btnClearData = findViewById(R.id.btnClearData);
+        btnSettings = findViewById(R.id.btnSettings);
+        btnAbout = findViewById(R.id.btnAbout);
+        menuBar = findViewById(R.id.menuBar);
+
+        // Cookie security settings
+        chatCookieManager = CookieManager.getInstance();
+        chatCookieManager.setAcceptCookie(true);
+        chatCookieManager.setAcceptThirdPartyCookies(chatWebView, true);
+
+        // URL bar: Enter key loads URL
+        urlBar.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_GO) {
+                loadUrlFromBar();
+                return true;
+            }
+            return false;
+        });
+
+        // Go button
+        btnGo.setOnClickListener(v -> loadUrlFromBar());
+
+        chatWebView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                if (consoleMessage.message().contains("NotAllowedError: Write permission denied.")) {
+                    Toast.makeText(context, R.string.error_copy, Toast.LENGTH_LONG).show();
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 100);
+                    }
+                }
+                if (mUploadMessage != null) {
+                    mUploadMessage.onReceiveValue(null);
+                    mUploadMessage = null;
+                }
+
+                mUploadMessage = filePathCallback;
+
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE);
+                return true;
+            }
+
+            @Override
+            public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    if (request.getResources().length > 0 && request.getResources()[0].equals(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            request.grant(request.getResources());
+                        } else {
+                            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 123);
+                        }
+                    } else {
+                        request.deny();
+                    }
+                } else {
+                    request.grant(request.getResources());
+                }
+            }
+        });
+
+        chatWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                // Fallback for WebViews without DOCUMENT_START_SCRIPT support
+                // (API 21-23 with an older WebView implementation). The primary
+                // path installs the scripts once via addDocumentStartJavaScript
+                // in onResume/_post_webview_config_, which fires before page
+                // scripts; this is the legacy safety net.
+                if (!documentStartSupported()) {
+                    view.evaluateJavascript(buildFallbackHardeningJS(), null);
+                    view.evaluateJavascript(buildFallbackTzSpoofJS(), null);
+                }
+                urlBar.setText(url);
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                super.onPageCommitVisible(view, url);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                urlBar.setText(url);
+                if (chatCookieManager != null) {
+                    chatCookieManager.flush();
+                }
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(final WebView view, WebResourceRequest request) {
+                if (!restricted) return null;
+
+                String urlStr = request.getUrl().toString();
+                String scheme = request.getUrl().getScheme();
+
+                // Allow blob:, data:, and about: schemes
+                if (scheme != null && ("blob".equalsIgnoreCase(scheme) || "data".equalsIgnoreCase(scheme) || "about".equalsIgnoreCase(scheme))) {
+                    return null;
+                }
+
+                if (urlStr.equals("about:blank")) {
+                    return null;
+                }
+
+                if (scheme == null || !"https".equalsIgnoreCase(scheme)) {
+                    Log.d(TAG, "[shouldInterceptRequest][NON-HTTPS] Blocked: " + urlStr);
+                    return blockedResponse();
+                }
+
+                if (!isAllowedDomain(request.getUrl().getHost())) {
+                    Log.d(TAG, "[shouldInterceptRequest][DOMAIN] Blocked: " + urlStr);
+                    return blockedResponse();
+                }
+
+                return null;
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (!restricted) return false;
+
+                String scheme = request.getUrl().getScheme();
+                if (scheme != null && ("blob".equalsIgnoreCase(scheme) || "data".equalsIgnoreCase(scheme) || "about".equalsIgnoreCase(scheme))) {
+                    return false;
+                }
+
+                if (request.getUrl().toString().equals("about:blank")) return false;
+
+                if (scheme == null || !"https".equalsIgnoreCase(scheme) || !isAllowedDomain(request.getUrl().getHost())) {
+                    Log.d(TAG, "[shouldOverrideUrlLoading] Blocked: " + request.getUrl());
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request != null && request.isForMainFrame()) {
+                    Log.w(TAG, "[onReceivedError] " + error.getErrorCode() + ": " + error.getDescription() + " @ " + request.getUrl());
+                }
+            }
+        });
+
+        chatWebView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            Uri source = Uri.parse(url);
+            DownloadManager.Request request = new DownloadManager.Request(source);
+            request.addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url));
+            request.addRequestHeader("Accept", "text/html, application/xhtml+xml, *" + "/" + "*");
+            request.addRequestHeader("Accept-Language", "en-US,en;q=0.7,he;q=0.3");
+            request.addRequestHeader("Referer", url);
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            String filename = URLUtilCompat.getFilenameFromContentDisposition(contentDisposition);
+            if (filename == null) filename = URLUtilCompat.guessFileName(url, contentDisposition, mimetype);
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
+            Toast.makeText(this, getString(R.string.download) + "\n" + filename, Toast.LENGTH_SHORT).show();
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            if (dm != null) dm.enqueue(request);
+        });
+
+        // Configure WebSettings for full local storage
+        chatWebSettings = chatWebView.getSettings();
+        chatWebSettings.setJavaScriptEnabled(true);
+        chatWebSettings.setDomStorageEnabled(true);
+        chatWebSettings.setDatabaseEnabled(true);
+        chatWebSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        // Security / Hardening overrides
+        chatWebSettings.setAllowContentAccess(true);
+        chatWebSettings.setAllowFileAccess(true);
+        chatWebSettings.setBuiltInZoomControls(false);
+        chatWebSettings.setDisplayZoomControls(false);
+        chatWebSettings.setSaveFormData(false);
+        chatWebSettings.setGeolocationEnabled(false);
+        chatWebSettings.setUserAgentString(modUserAgent());
+
+        // Register document_start scripts (runs before any page script on every
+        // navigation). The script source reflects current toggle state, so a
+        // reload after Apply & Reapply picks up new settings. Falls back to
+        // evaluateJavascript in onPageStarted when the feature isn't supported.
+        installDocumentStartScripts();
+
+        // Load with DNT header if enabled
+        if (dntEnabled) {
+            java.util.Map<String, String> extraHeaders = new java.util.HashMap<>();
+            extraHeaders.put("DNT", "1");
+            chatWebView.loadUrl(URL_TO_LOAD, extraHeaders);
+        } else {
+            chatWebView.loadUrl(URL_TO_LOAD);
+        }
+        urlBar.setText(URL_TO_LOAD);
+        // Start auto-hide countdown for arrow button
+        scheduleAutoHide();
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                if (chatWebView.canGoBack() && !chatWebView.getUrl().equals("about:blank")) {
+                    chatWebView.goBack();
+                } else {
+                    finish();
+                }
+                return true;
+            }
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private void loadUrlFromBar() {
+        String input = urlBar.getText().toString().trim();
+        if (input.isEmpty()) return;
+        if (!input.startsWith("http://") && !input.startsWith("https://")) {
+            input = "https://" + input;
+        }
+        if (dntEnabled) {
+            java.util.Map<String, String> extraHeaders = new java.util.HashMap<>();
+            extraHeaders.put("DNT", "1");
+            chatWebView.loadUrl(input, extraHeaders);
+        } else {
+            chatWebView.loadUrl(input);
+        }
+        hideMenu();
+    }
+
+    public void resetChat() {
+        chatWebView.clearCache(true);
+        chatWebView.clearFormData();
+        chatWebView.clearHistory();
+        chatWebView.clearMatches();
+        chatWebView.clearSslPreferences();
+        chatCookieManager.removeSessionCookie();
+        // removeAllCookies is async — only reload after cookies are actually gone,
+        // otherwise the fresh page load can still send stale session cookies.
+        chatCookieManager.removeAllCookies(value -> {
+            CookieManager.getInstance().flush();
+            WebStorage.getInstance().deleteAllData();
+            chatWebView.loadUrl(URL_TO_LOAD);
+        });
+    }
+
+    private void loadSettings() {
+        restricted = prefs.getBoolean("restricted", true);
+        webrtcBlocked = prefs.getBoolean("webrtcBlocked", true);
+        sensorsBlocked = prefs.getBoolean("sensorsBlocked", true);
+        dntEnabled = prefs.getBoolean("dntEnabled", true);
+        timezoneSpoofed = prefs.getBoolean("timezoneSpoofed", true);
+    }
+
+    private void saveSettings() {
+        prefs.edit()
+                .putBoolean("restricted", restricted)
+                .putBoolean("webrtcBlocked", webrtcBlocked)
+                .putBoolean("sensorsBlocked", sensorsBlocked)
+                .putBoolean("dntEnabled", dntEnabled)
+                .putBoolean("timezoneSpoofed", timezoneSpoofed)
+                .apply();
+    }
+
+    // Blocked requests get an explicit 403 with a JSON body instead of 200 OK with
+    // text/javascript and an empty body — the old response broke auth-provider JS
+    // (e.g. Clerk) that called response.json() and got a parse error / null.
+    private WebResourceResponse blockedResponse() {
+        return new WebResourceResponse(
+                "application/json", "UTF-8", 403, "Forbidden",
+                Collections.singletonMap("Content-Type", "application/json"),
+                new java.io.ByteArrayInputStream("{}".getBytes()));
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
+        super.onActivityResult(requestCode, resultCode, intent);
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+            if (mUploadMessage == null) return;
+            Uri[] result = null;
+            if (resultCode == Activity.RESULT_OK && intent != null) {
+                String dataString = intent.getDataString();
+                if (dataString != null) {
+                    result = new Uri[]{Uri.parse(dataString)};
+                }
+            }
+            mUploadMessage.onReceiveValue(result);
+            mUploadMessage = null;
+        }
+    }
+
+    @Override
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
+        super.onCreateContextMenu(menu, v, menuInfo);
+        WebView.HitTestResult result = chatWebView.getHitTestResult();
+        if (result.getExtra() != null && (result.getType() == IMAGE_TYPE || result.getType() == SRC_IMAGE_ANCHOR_TYPE || result.getType() == SRC_ANCHOR_TYPE)) {
+            String url = result.getExtra();
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText(getString(R.string.app_name), url);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, R.string.url_copied, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public String modUserAgent() {
+        // Generic Chrome desktop UA — avoids fingerprinting while staying realistic
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 123) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(context, "Microphone permission granted.", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(context, "Microphone permission denied.", Toast.LENGTH_SHORT).show();
+            }
+        }
+        if (requestCode == 100) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(context, "Storage permission granted.", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(context, "Storage permission denied.", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+}

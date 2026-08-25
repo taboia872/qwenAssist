@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Blocks cleartext traffic app-wide. Certificate pinning is intentionally NOT
+  enabled: without backup pins and pin rotation monitoring, a cert change from
+  the target service or CDN would permanently break the app. If pinning is ever
+  added, ship at least one backup pin and validate against the live chain first:
+    echo | openssl s_client -connect example.com:443 2>/dev/null \
+      | openssl x509 -pubkey -noout \
+      | openssl pkey -pubin -outform der \
+      | openssl dgst -sha256 -binary | openssl enc -base64
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

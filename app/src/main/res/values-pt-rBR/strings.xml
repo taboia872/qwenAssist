@@ -1,0 +1,20 @@
+<resources>
+    <string name="error_copy">Por favor selecione e copie o texto manualmente</string>
+    <!-- StarDialog -->
+    <string name="dialog_OK_button">OK</string>
+    <string name="dialog_NO_button">Não</string>
+    <string name="dialog_Later_button">Talvez depois</string>
+    <string name="dialog_StarOnGitHub">Você gosta desse app? Por favor dê uma estrela no GitHub.</string>
+    <string name="download">Download iniciado:</string>
+    <string name="all_urls">Todas as URLs permitidas</string>
+    <string name="urls_restricted">URLs restritas</string>
+    <string name="url_copied">URL copiada</string>
+    <!-- Menu -->
+    <string name="confirm_clear_data">Limpar todos os dados? Isso vai apagar cookies, cache, histórico e armazenamento local.</string>
+    <string name="confirm_clear_title">Limpar todos os dados</string>
+    <string name="confirm_yes">Limpar</string>
+    <string name="confirm_no">Cancelar</string>
+    <string name="data_cleared">Dados limpos. Recarregando…</string>
+    <string name="about_title">Sobre o QwenAssist</string>
+    <string name="about_message">QwenAssist v1.0.0\n\nUm wrapper WebView endurecido para o Qwen Chat (chat.qwen.ai).\n\nBaseado em testAssist / gptassist por @woheller69 e geminiAssist por @AcideFluorhydrique.\n\nLicença: GPL-3.0</string>
+</resources>
