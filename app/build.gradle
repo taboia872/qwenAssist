@@ -21,6 +21,24 @@ android {
         }
     }
 
+    // Sign debug builds with a persistent keystore so users can update in-place
+    // across CI builds. Without this, the auto-generated debug key changes on
+    // every fresh runner and Android refuses the update. Keystore path and
+    // passwords come from GitHub Actions env vars injected by the workflow.
+    signingConfigs {
+        debug {
+            def ksPath = System.getenv('KEYSTORE_PATH')
+            if (ksPath && new File(ksPath).exists()) {
+                storeFile file(ksPath)
+                storePassword System.getenv('STORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS')
+                keyPassword System.getenv('KEY_PASSWORD')
+            }
+            // If env vars are missing (local builds), Gradle falls back to the
+            // default debug keystore in ~/.android/debug.keystore.
+        }
+    }
+
     applicationVariants.configureEach { variant ->
         variant.outputs.configureEach { output ->
             def versionName = variant.versionName

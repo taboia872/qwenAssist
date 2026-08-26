@@ -26,12 +26,21 @@ jobs:
       # the runner force-runs it on node24. v5 GA is pending — once released,
       # bump to @v5 to clear the remaining deprecation warning.
       uses: gradle/actions/setup-gradle@v4
+    - name: Decode signing keystore from Secrets
+      # Decode the persistent keystore (base64) into a file so apksigner can use it.
+      # Without this, every build would produce an APK signed with a fresh debug
+      # key, forcing users to uninstall before updating.
+      run: |
+        echo "${{ secrets.QWEN_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/qwenassist.keystore"
+        echo "KEYSTORE_PATH=$RUNNER_TEMP/qwenassist.keystore" >> "$GITHUB_ENV"
     - name: Build Debug APK
-      # Signed with the runner's auto-generated debug key — every build has a
-      # DIFFERENT signature, so updating requires uninstalling the previous
-      # install. This repo is a test lab / template for forks; forks that want
-      # in-place updates should add a persistent keystore via Secrets.
+      # Signed with the persistent keystore decoded above — signature is stable
+      # across builds, so the APK updates in-place over previous installs.
       run: ./gradlew assembleDebug --stacktrace --info
+      env:
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v6
       with:
