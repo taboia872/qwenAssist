@@ -61,6 +61,7 @@ public class MainActivity extends Activity {
     private ImageButton btnClearData = null;
     private ImageButton btnSettings = null;
     private ImageButton btnAbout = null;
+    private ImageButton btnFullscreen = null;
     private LinearLayout menuBar = null;
     private boolean menuVisible = false;
     private WebSettings chatWebSettings = null;
@@ -74,8 +75,10 @@ public class MainActivity extends Activity {
     private static final String[] ALLOWED_DOMAINS = {
             "qwen.ai",             // chat.qwen.ai, pre-chat.qwen.ai (chat + API)
             "alicdn.com",          // assets/g/img.alicdn.com (static CDN)
-            "alibabacloud.com",    // Alibaba Cloud backend endpoints
-            "googletagmanager.com" // analytics loaded by the page shell
+            "alibabacloud.com"       // Alibaba Cloud backend endpoints
+            // NOTE: ALL Google domains are blocked by default (per user rule),
+            // including googletagmanager.com analytics, until testing proves
+            // something breaks without them.
     };
 
     private static boolean isAllowedDomain(String host) {
@@ -90,6 +93,8 @@ public class MainActivity extends Activity {
     private static boolean sensorsBlocked = true;
     private static boolean dntEnabled = true;
     private static boolean timezoneSpoofed = true;
+    private static boolean mobileUaEnabled = false;
+    private static boolean fullscreenEnabled = false;
     private static String spoofedTimezone = "UTC";
     private Handler autoHideHandler = new Handler();
     private Runnable autoHideRunnable;
@@ -214,6 +219,16 @@ public class MainActivity extends Activity {
             hideMenu();
         });
 
+        // Fullscreen toggle — hides/shows status bar via immersive mode
+        btnFullscreen.setOnClickListener(v -> {
+            fullscreenEnabled = !fullscreenEnabled;
+            applyFullscreen();
+            Toast.makeText(context,
+                fullscreenEnabled ? "Fullscreen on" : "Fullscreen off",
+                Toast.LENGTH_SHORT).show();
+            hideMenu();
+        });
+
         // Clear all data with confirmation dialog
         btnClearData.setOnClickListener(v -> {
             new AlertDialog.Builder(context)
@@ -235,9 +250,10 @@ public class MainActivity extends Activity {
                 "Block WebRTC",
                 "Block Device Orientation/Motion",
                 "Do Not Track (DNT)",
-                "Spoof Timezone (random)"
+                "Spoof Timezone (random)",
+                "Mobile User-Agent (generic Chrome Android)"
             };
-            boolean[] checked = {restricted, webrtcBlocked, sensorsBlocked, dntEnabled, timezoneSpoofed};
+            boolean[] checked = {restricted, webrtcBlocked, sensorsBlocked, dntEnabled, timezoneSpoofed, mobileUaEnabled};
             new AlertDialog.Builder(context)
                 .setTitle("Settings")
                 .setMultiChoiceItems(options, checked, (dialog, which, isChecked) -> {
@@ -249,6 +265,7 @@ public class MainActivity extends Activity {
                         timezoneSpoofed = isChecked;
                         if (!isChecked) spoofedTimezone = "UTC";
                     }
+                    else if (which == 5) mobileUaEnabled = isChecked;
                 })
                 .setPositiveButton("Apply & Reload", (dialog, which) -> {
                     saveSettings();
@@ -316,7 +333,7 @@ public class MainActivity extends Activity {
         // Cancel auto-hide while menu is open
         if (autoHideRunnable != null) autoHideHandler.removeCallbacks(autoHideRunnable);
         // Show action buttons immediately (no fade)
-        int[] viewIds = {R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
+        int[] viewIds = {R.id.btnReload, R.id.btnFullscreen, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
         for (int viewId : viewIds) {
             View v = menuBar.findViewById(viewId);
             v.setAlpha(1f);
@@ -348,7 +365,7 @@ public class MainActivity extends Activity {
             .translationX(slideDistance)
             .setDuration(500)
             .withEndAction(() -> {
-                int[] viewIds = {R.id.btnReload, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
+                int[] viewIds = {R.id.btnReload, R.id.btnFullscreen, R.id.btnClearData, R.id.btnSettings, R.id.btnAbout};
                 for (int viewId : viewIds) {
                     View v = menuBar.findViewById(viewId);
                     v.setVisibility(View.GONE);
@@ -395,6 +412,7 @@ public class MainActivity extends Activity {
         btnClearData = findViewById(R.id.btnClearData);
         btnSettings = findViewById(R.id.btnSettings);
         btnAbout = findViewById(R.id.btnAbout);
+        btnFullscreen = findViewById(R.id.btnFullscreen);
         menuBar = findViewById(R.id.menuBar);
 
         // Cookie security settings
@@ -621,6 +639,7 @@ public class MainActivity extends Activity {
         sensorsBlocked = prefs.getBoolean("sensorsBlocked", true);
         dntEnabled = prefs.getBoolean("dntEnabled", true);
         timezoneSpoofed = prefs.getBoolean("timezoneSpoofed", true);
+        mobileUaEnabled = prefs.getBoolean("mobileUaEnabled", false);
     }
 
     private void saveSettings() {
@@ -630,6 +649,7 @@ public class MainActivity extends Activity {
                 .putBoolean("sensorsBlocked", sensorsBlocked)
                 .putBoolean("dntEnabled", dntEnabled)
                 .putBoolean("timezoneSpoofed", timezoneSpoofed)
+                .putBoolean("mobileUaEnabled", mobileUaEnabled)
                 .apply();
     }
 
@@ -675,7 +695,26 @@ public class MainActivity extends Activity {
 
     public String modUserAgent() {
         // Generic Chrome desktop UA — avoids fingerprinting while staying realistic
+        if (mobileUaEnabled) {
+            // Most common generic mobile Chrome UA (Android 10, Nexus-class device token)
+            return "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+        }
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+    }
+
+    private void applyFullscreen() {
+        if (fullscreenEnabled) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
     }
 
     @Override

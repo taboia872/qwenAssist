@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
+    android:fitsSystemWindows="false">
 
     <WebView
         android:id="@+id/chatWebView"
@@ -42,6 +42,16 @@
             android:padding="8dp"
             android:src="@drawable/ic_reload"
             android:contentDescription="Reload"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/btnFullscreen"
+            android:background="@android:color/transparent"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_fullscreen"
+            android:contentDescription="Fullscreen"
             android:visibility="gone" />
 
         <ImageButton
