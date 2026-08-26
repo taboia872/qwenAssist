@@ -703,11 +703,11 @@ public class MainActivity extends Activity {
     }
 
     private void applyFullscreen() {
-        // fitsSystemWindows stays TRUE always (XML default) — this keeps the
-        // menuBar inside the tappable area and respects status-bar insets in
-        // normal mode. Fullscreen only hides the system bars; the WebView
-        // content extends behind them via the layout flags below.
+        View root = findViewById(android.R.id.content);
         if (fullscreenEnabled) {
+            // Hide system bars, then drop the fitsSystemWindows padding so the
+            // WebView relayouts and expands into the freed area. The menuBar
+            // stays tappable because the status bar itself is hidden (immersive).
             getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -715,10 +715,14 @@ public class MainActivity extends Activity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            root.setFitsSystemWindows(false);
         } else {
+            // Restore bars and the inset-aware layout.
             getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            root.setFitsSystemWindows(true);
         }
+        root.requestLayout();
     }
 
     @Override
