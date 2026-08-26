@@ -703,6 +703,12 @@ public class MainActivity extends Activity {
     }
 
     private void applyFullscreen() {
+        // Root view = FrameLayout from activity_main.xml. Default (XML) is
+        // fitsSystemWindows=false so the app fills the screen edge-to-edge;
+        // when fullscreen is requested we flip it to true so insets are
+        // re-applied and the hidden system bars don't overlap content weirdly.
+        View root = findViewById(android.R.id.content);
+        root.setFitsSystemWindows(fullscreenEnabled);
         if (fullscreenEnabled) {
             getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -715,6 +721,7 @@ public class MainActivity extends Activity {
             getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         }
+        root.requestLayout();
     }
 
     @Override
