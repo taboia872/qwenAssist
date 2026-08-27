@@ -397,6 +397,13 @@ public class MainActivity extends Activity {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
+        // Edge-to-edge from the start: transparent system bars + decor draws behind them.
+        // Done ONCE here — the fullscreen toggle then only hides/shows the bars.
+        // Without transparent statusBarColor, DeviceDefault's opaque status bar theme
+        // keeps painting a solid strip over our content even when the bar is "hidden".
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         setContentView(R.layout.activity_main);
 
         chatWebView = findViewById(R.id.chatWebView);
@@ -703,16 +710,8 @@ public class MainActivity extends Activity {
     }
 
     private void applyFullscreen() {
-        // Root cause of "bars hide but content doesn't expand": the status-bar
-        // inset padding is applied by the window's content parent (the
-        // ContentFrameLayout created by the decor view), NOT by our own
-        // FrameLayout. Calling root.setFitsSystemWindows(false) only stops
-        // OUR layout from consuming insets — the parent above us kept the
-        // topPadding, so the page stayed pushed down.
-        //
-        // Fix: setDecorFitsSystemWindows=false makes the decor stop reserving
-        // space for the bars entirely, so the content really relayouts edge
-        // to edge. WindowInsetsControllerCompat hides/shows the bars.
+        // Edge-to-edge is set once in onCreate (decorFits=false + transparent bars).
+        // The toggle only hides/shows the system bars — no layout flip-flop.
         androidx.core.view.WindowInsetsControllerCompat controller =
             androidx.core.view.WindowCompat.getInsetsController(
                 getWindow(), getWindow().getDecorView());
@@ -720,10 +719,8 @@ public class MainActivity extends Activity {
             androidx.core.view.WindowInsetsControllerCompat
                 .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         if (fullscreenEnabled) {
-            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
             controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
         } else {
-            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
             controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
         }
     }
