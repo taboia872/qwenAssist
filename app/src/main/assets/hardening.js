@@ -59,24 +59,28 @@
       Object.defineProperty(navigator, 'doNotTrack', { get: function () { return '1'; }, configurable: true });
     }
 
-    // CPU cores — spoof to 4
-    Object.defineProperty(navigator, 'hardwareConcurrency', { get: function () { return 4; }, configurable: true });
-    // Device memory — spoof to 4 (common mobile value)
-    Object.defineProperty(navigator, 'deviceMemory', { get: function () { return 4; }, configurable: true });
+    // CPU cores — spoof so the app doesn't leak the real SoC core count
+    Object.defineProperty(navigator, 'hardwareConcurrency', {
+      get: function () { return S.spoofCores || 4; }, configurable: true });
+    // Device memory (GB)
+    Object.defineProperty(navigator, 'deviceMemory', {
+      get: function () { return S.spoofMemory || 4; }, configurable: true });
 
-    // WebGL — spoof GPU vendor and renderer to generic values
+    // WebGL — spoof GPU vendor and renderer to keep the chipset private
     (function () {
+      var vendor = String(S.spoofGpuVendor || 'Qualcomm');
+      var renderer = String(S.spoofGpuRenderer || 'Adreno (TM) 650');
       var getParameter = WebGLRenderingContext.prototype.getParameter;
       WebGLRenderingContext.prototype.getParameter = function (param) {
-        if (param === 37445) return 'Google Inc. (Intel)';
-        if (param === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics 630, OpenGL 4.1)';
+        if (param === 37445) return vendor;
+        if (param === 37446) return renderer;
         return getParameter.call(this, param);
       };
       if (window.WebGL2RenderingContext) {
         var getParameter2 = WebGL2RenderingContext.prototype.getParameter;
         WebGL2RenderingContext.prototype.getParameter = function (param) {
-          if (param === 37445) return 'Google Inc. (Intel)';
-          if (param === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics 630, OpenGL 4.1)';
+          if (param === 37445) return vendor;
+          if (param === 37446) return renderer;
           return getParameter2.call(this, param);
         };
       }
@@ -115,9 +119,9 @@
         if (!cw || cw.__ta_patched) return;
         try {
           Object.defineProperty(cw.navigator, 'hardwareConcurrency',
-            { get: function () { return 4; }, configurable: true });
+            { get: function () { return S.spoofCores || 4; }, configurable: true });
           Object.defineProperty(cw.navigator, 'deviceMemory',
-            { get: function () { return 4; }, configurable: true });
+            { get: function () { return S.spoofMemory || 4; }, configurable: true });
         } catch (_) {}
         // Date — delegate to the parent's overridden Date so instances inherit
         // from parent.Date.prototype (which has getTimezoneOffset, getHours,

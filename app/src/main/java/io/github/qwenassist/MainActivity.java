@@ -109,7 +109,9 @@ public class MainActivity extends Activity {
     private static boolean sensorsBlocked = true;
     private static boolean dntEnabled = true;
     private static boolean timezoneSpoofed = true;
-    private static boolean mobileUaEnabled = false;
+    // desktopModeEnabled=false → mobile profile (default): mobile UA, 4 cores, 4GB, Adreno.
+    // desktopModeEnabled=true  → desktop profile: desktop UA, 8 cores, 8GB, Intel GPU.
+    private static boolean desktopModeEnabled = false;
     private static boolean fullscreenEnabled = false;
     private static String spoofedTimezone = "UTC";
     private Handler autoHideHandler = new Handler();
@@ -167,9 +169,24 @@ public class MainActivity extends Activity {
 
     // Build the combined hardening script: payload prefix + hardening.js body.
     private String buildHardeningScript() {
+        // Compute spoofed values once per profile — mobile by default
+        // (desktopModeEnabled=false), desktop when the toggle is ON.
+        int cores = desktopModeEnabled ? 8 : 4;
+        int memory = desktopModeEnabled ? 8 : 4;
+        String gpuVendor = desktopModeEnabled
+            ? "Google Inc. (Intel)"
+            : "Qualcomm";
+        String gpuRenderer = desktopModeEnabled
+            ? "ANGLE (Intel, Intel(R) UHD Graphics 630, OpenGL 4.1)"
+            : "Adreno (TM) 650";
+
         String json = "{\"sensorsBlocked\":" + sensorsBlocked
             + ",\"dntEnabled\":" + dntEnabled
-            + ",\"webrtcBlocked\":" + webrtcBlocked + "}";
+            + ",\"webrtcBlocked\":" + webrtcBlocked
+            + ",\"spoofCores\":" + cores
+            + ",\"spoofMemory\":" + memory
+            + ",\"spoofGpuVendor\":\"" + gpuVendor + "\""
+            + ",\"spoofGpuRenderer\":\"" + gpuRenderer + "\"}";
         String js = readAsset("hardening.js");
         return "window.__TA_SETTINGS__ = " + json + ";\n" + js;
     }
@@ -267,9 +284,9 @@ public class MainActivity extends Activity {
                 "Block Device Orientation/Motion",
                 "Do Not Track (DNT)",
                 "Spoof Timezone (random)",
-                "Mobile User-Agent (generic Chrome Android)"
+                "Desktop mode (UA + hardware fingerprint)"
             };
-            boolean[] checked = {restricted, webrtcBlocked, sensorsBlocked, dntEnabled, timezoneSpoofed, mobileUaEnabled};
+            boolean[] checked = {restricted, webrtcBlocked, sensorsBlocked, dntEnabled, timezoneSpoofed, desktopModeEnabled};
             new AlertDialog.Builder(context)
                 .setTitle("Settings")
                 .setMultiChoiceItems(options, checked, (dialog, which, isChecked) -> {
@@ -281,7 +298,7 @@ public class MainActivity extends Activity {
                         timezoneSpoofed = isChecked;
                         if (!isChecked) spoofedTimezone = "UTC";
                     }
-                    else if (which == 5) mobileUaEnabled = isChecked;
+                    else if (which == 5) desktopModeEnabled = isChecked;
                 })
                 .setPositiveButton("Apply & Reload", (dialog, which) -> {
                     saveSettings();
@@ -674,7 +691,7 @@ public class MainActivity extends Activity {
         sensorsBlocked = prefs.getBoolean("sensorsBlocked", true);
         dntEnabled = prefs.getBoolean("dntEnabled", true);
         timezoneSpoofed = prefs.getBoolean("timezoneSpoofed", true);
-        mobileUaEnabled = prefs.getBoolean("mobileUaEnabled", false);
+        desktopModeEnabled = prefs.getBoolean("desktopModeEnabled", false);
     }
 
     private void saveSettings() {
@@ -684,7 +701,7 @@ public class MainActivity extends Activity {
                 .putBoolean("sensorsBlocked", sensorsBlocked)
                 .putBoolean("dntEnabled", dntEnabled)
                 .putBoolean("timezoneSpoofed", timezoneSpoofed)
-                .putBoolean("mobileUaEnabled", mobileUaEnabled)
+                .putBoolean("desktopModeEnabled", desktopModeEnabled)
                 .apply();
     }
 
@@ -729,12 +746,12 @@ public class MainActivity extends Activity {
     }
 
     public String modUserAgent() {
-        // Generic Chrome desktop UA — avoids fingerprinting while staying realistic
-        if (mobileUaEnabled) {
-            // Most common generic mobile Chrome UA (Android 10, Nexus-class device token)
-            return "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+        if (desktopModeEnabled) {
+            // Generic Windows Chrome desktop UA — blends with desktop users
+            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
         }
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+        // Default: generic mobile Chrome on Android (matches the dominant WebView population)
+        return "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
     }
 
     private android.animation.ValueAnimator paddingAnimator;
