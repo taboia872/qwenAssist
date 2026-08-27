@@ -397,14 +397,23 @@ public class MainActivity extends Activity {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
-        // Edge-to-edge from the start: transparent system bars + decor draws behind them.
-        // Done ONCE here — the fullscreen toggle then only hides/shows the bars.
-        // Without transparent statusBarColor, DeviceDefault's opaque status bar theme
-        // keeps painting a solid strip over our content even when the bar is "hidden".
+        // Edge-to-edge window: app draws behind system bars. Insets are
+        // applied as padding on the root layout — when bars are visible the
+        // content sits below/above them; in fullscreen mode the bars hide,
+        // insets go to zero, and the content expands automatically.
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
         getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         setContentView(R.layout.activity_main);
+
+        final android.view.View rootView = findViewById(android.R.id.content);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(rootView,
+            (v, windowInsets) -> {
+                androidx.core.graphics.Insets bars = windowInsets.getInsets(
+                    androidx.core.view.WindowInsetsCompat.Type.systemBars());
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                return windowInsets;
+            });
 
         chatWebView = findViewById(R.id.chatWebView);
         // Detect when page is scrolled to top to reveal the arrow button
