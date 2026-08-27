@@ -411,7 +411,7 @@ public class MainActivity extends Activity {
             (v, windowInsets) -> {
                 androidx.core.graphics.Insets bars = windowInsets.getInsets(
                     androidx.core.view.WindowInsetsCompat.Type.systemBars());
-                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                animatePadding(v, bars.left, bars.top, bars.right, bars.bottom);
                 return windowInsets;
             });
 
@@ -716,6 +716,37 @@ public class MainActivity extends Activity {
             return "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
         }
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+    }
+
+    private android.animation.ValueAnimator paddingAnimator;
+
+    private void animatePadding(final android.view.View v,
+                                final int targetLeft, final int targetTop,
+                                final int targetRight, final int targetBottom) {
+        // Cancel any in-flight animation and start from current padding
+        if (paddingAnimator != null && paddingAnimator.isRunning()) {
+            paddingAnimator.cancel();
+        }
+        final int startLeft = v.getPaddingLeft();
+        final int startTop = v.getPaddingTop();
+        final int startRight = v.getPaddingRight();
+        final int startBottom = v.getPaddingBottom();
+        if (startLeft == targetLeft && startTop == targetTop
+                && startRight == targetRight && startBottom == targetBottom) {
+            return; // nothing to do
+        }
+        paddingAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        paddingAnimator.setDuration(300);
+        paddingAnimator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        paddingAnimator.addUpdateListener(anim -> {
+            float t = (Float) anim.getAnimatedValue();
+            v.setPadding(
+                (int)(startLeft   + (targetLeft   - startLeft)   * t),
+                (int)(startTop    + (targetTop    - startTop)    * t),
+                (int)(startRight  + (targetRight  - startRight)  * t),
+                (int)(startBottom + (targetBottom - startBottom) * t));
+        });
+        paddingAnimator.start();
     }
 
     private void applyFullscreen() {
