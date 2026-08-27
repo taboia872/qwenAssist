@@ -703,26 +703,29 @@ public class MainActivity extends Activity {
     }
 
     private void applyFullscreen() {
-        View root = findViewById(android.R.id.content);
+        // Root cause of "bars hide but content doesn't expand": the status-bar
+        // inset padding is applied by the window's content parent (the
+        // ContentFrameLayout created by the decor view), NOT by our own
+        // FrameLayout. Calling root.setFitsSystemWindows(false) only stops
+        // OUR layout from consuming insets — the parent above us kept the
+        // topPadding, so the page stayed pushed down.
+        //
+        // Fix: setDecorFitsSystemWindows=false makes the decor stop reserving
+        // space for the bars entirely, so the content really relayouts edge
+        // to edge. WindowInsetsControllerCompat hides/shows the bars.
+        androidx.core.view.WindowInsetsControllerCompat controller =
+            androidx.core.view.WindowCompat.getInsetsController(
+                getWindow(), getWindow().getDecorView());
+        controller.setSystemBarsBehavior(
+            androidx.core.view.WindowInsetsControllerCompat
+                .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         if (fullscreenEnabled) {
-            // Hide system bars, then drop the fitsSystemWindows padding so the
-            // WebView relayouts and expands into the freed area. The menuBar
-            // stays tappable because the status bar itself is hidden (immersive).
-            getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                | View.SYSTEM_UI_FLAG_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-            root.setFitsSystemWindows(false);
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
         } else {
-            // Restore bars and the inset-aware layout.
-            getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-            root.setFitsSystemWindows(true);
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+            controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
         }
-        root.requestLayout();
     }
 
     @Override
