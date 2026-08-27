@@ -88,6 +88,22 @@ public class MainActivity extends Activity {
         }
         return false;
     }
+
+    /**
+     * Surgical exception for reCAPTCHA: allow ONLY the /recaptcha/* paths on
+     * google.com / gstatic.com / recaptcha.net, keeping all other Google
+     * endpoints blocked. Used by Qwen login/signup which embeds reCAPTCHA v2.
+     */
+    private static boolean isRecaptchaRequest(android.net.Uri uri) {
+        String host = uri.getHost();
+        if (host == null) return false;
+        boolean isGoogleHost = host.equals("google.com") || host.endsWith(".google.com")
+                || host.equals("gstatic.com") || host.endsWith(".gstatic.com")
+                || host.equals("recaptcha.net") || host.endsWith(".recaptcha.net");
+        if (!isGoogleHost) return false;
+        String path = uri.getPath();
+        return path != null && path.startsWith("/recaptcha/");
+    }
     private static boolean restricted = true;
     private static boolean webrtcBlocked = true;
     private static boolean sensorsBlocked = true;
@@ -534,7 +550,8 @@ public class MainActivity extends Activity {
                     return blockedResponse();
                 }
 
-                if (!isAllowedDomain(request.getUrl().getHost())) {
+                if (!isAllowedDomain(request.getUrl().getHost())
+                        && !isRecaptchaRequest(request.getUrl())) {
                     Log.d(TAG, "[shouldInterceptRequest][DOMAIN] Blocked: " + urlStr);
                     return blockedResponse();
                 }
@@ -553,7 +570,9 @@ public class MainActivity extends Activity {
 
                 if (request.getUrl().toString().equals("about:blank")) return false;
 
-                if (scheme == null || !"https".equalsIgnoreCase(scheme) || !isAllowedDomain(request.getUrl().getHost())) {
+                if (scheme == null || !"https".equalsIgnoreCase(scheme)
+                        || (!isAllowedDomain(request.getUrl().getHost())
+                            && !isRecaptchaRequest(request.getUrl()))) {
                     Log.d(TAG, "[shouldOverrideUrlLoading] Blocked: " + request.getUrl());
                     return true;
                 }
