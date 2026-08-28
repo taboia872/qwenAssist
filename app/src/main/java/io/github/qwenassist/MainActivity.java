@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
     // Domain whitelist for restricted mode. Subdomains of these are allowed.
     private static final String[] ALLOWED_DOMAINS = {
             "qwen.ai",             // chat.qwen.ai, pre-chat.qwen.ai (chat + API)
-            "alicdn.com",          // assets/g/img.alicdn.com (static CDN)
+            "alicdn.com",          // o/g/assets/img.alicdn.com (static CDN, captcha frontend)
             "alibabacloud.com"       // Alibaba Cloud backend endpoints
             // NOTE: ALL Google domains are blocked by default (per user rule),
             // including googletagmanager.com analytics, until testing proves
@@ -87,22 +87,6 @@ public class MainActivity extends Activity {
             if (host.equals(d) || host.endsWith("." + d)) return true;
         }
         return false;
-    }
-
-    /**
-     * Surgical exception for reCAPTCHA: allow ONLY the /recaptcha/* paths on
-     * google.com / gstatic.com / recaptcha.net, keeping all other Google
-     * endpoints blocked. Used by Qwen login/signup which embeds reCAPTCHA v2.
-     */
-    private static boolean isRecaptchaRequest(android.net.Uri uri) {
-        String host = uri.getHost();
-        if (host == null) return false;
-        boolean isGoogleHost = host.equals("google.com") || host.endsWith(".google.com")
-                || host.equals("gstatic.com") || host.endsWith(".gstatic.com")
-                || host.equals("recaptcha.net") || host.endsWith(".recaptcha.net");
-        if (!isGoogleHost) return false;
-        String path = uri.getPath();
-        return path != null && path.startsWith("/recaptcha/");
     }
     private static boolean restricted = true;
     private static boolean webrtcBlocked = true;
@@ -567,8 +551,7 @@ public class MainActivity extends Activity {
                     return blockedResponse();
                 }
 
-                if (!isAllowedDomain(request.getUrl().getHost())
-                        && !isRecaptchaRequest(request.getUrl())) {
+                if (!isAllowedDomain(request.getUrl().getHost())) {
                     Log.d(TAG, "[shouldInterceptRequest][DOMAIN] Blocked: " + urlStr);
                     return blockedResponse();
                 }
@@ -588,8 +571,7 @@ public class MainActivity extends Activity {
                 if (request.getUrl().toString().equals("about:blank")) return false;
 
                 if (scheme == null || !"https".equalsIgnoreCase(scheme)
-                        || (!isAllowedDomain(request.getUrl().getHost())
-                            && !isRecaptchaRequest(request.getUrl()))) {
+                        || !isAllowedDomain(request.getUrl().getHost())) {
                     Log.d(TAG, "[shouldOverrideUrlLoading] Blocked: " + request.getUrl());
                     return true;
                 }
