@@ -208,58 +208,26 @@ public class MainActivity extends Activity {
                 chatWebView, buildLoginWarningScript(), ALLOW_ALL_ORIGINS);
         } catch (Exception e) { Log.w(TAG, "login warning script registration: " + e.getMessage()); }
         try {
-            WebViewCompat.addDocumentStartJavaScript(
-                chatWebView, buildAppBannerKillerScript(), ALLOW_ALL_ORIGINS);
+            String killer = buildAppBannerKillerScript();
+            if (!killer.isEmpty()) {
+                WebViewCompat.addDocumentStartJavaScript(
+                    chatWebView, killer, ALLOW_ALL_ORIGINS);
+            }
         } catch (Exception e) { Log.w(TAG, "app-banner killer registration: " + e.getMessage()); }
     }
 
-    // Removes Qwen's "Get the App" promo bar that appears on mobile UAs.
-    // The banner is rendered as <div id="get-the-app"> (mobile in-feed strip)
-    // plus a fullscreen <div id="downLoad_app"> fallback when opening the
-    // "unsupported system" page. Both have stable IDs, so we (a) hide them
-    // with a !important style rule — survives page-side JS that flips
-    // display back — and (b) prune any late-inserted clones via a
-    // MutationObserver.
+    // Aggressive app-promo banner killer — loaded from assets/app_banner_killer.js.
+    // Hides stable IDs with !important CSS, plus a text-based fallback that
+    // walks up to the outermost fixed/sticky/top-of-viewport ancestor and
+    // removes it. Handles Shadow Roots for the CSS layer. Logs to console
+    // under the [QAB] tag for logcat diagnosis.
     private String buildAppBannerKillerScript() {
-        return
-          "(function(){" +
-          "  if (window.__qwenAppBannerKillerInstalled) return;" +
-          "  window.__qwenAppBannerKillerInstalled = true;" +
-          "  var STYLE = '#get-the-app,#downLoad_app,#low-version-browser{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}';" +
-          "  function injectStyle() {" +
-          "    var root = document.head || document.documentElement;" +
-          "    if (!root) return;" +
-          "    if (document.getElementById('__qwenAppBannerKillerStyle')) return;" +
-          "    var s = document.createElement('style');" +
-          "    s.id = '__qwenAppBannerKillerStyle';" +
-          "    s.textContent = STYLE;" +
-          "    root.appendChild(s);" +
-          "  }" +
-          "  function prune() {" +
-          "    ['get-the-app', 'downLoad_app', 'low-version-browser'].forEach(function(id){" +
-          "      var el = document.getElementById(id);" +
-          "      if (el && el.parentNode) el.parentNode.removeChild(el);" +
-          "    });" +
-          "  }" +
-          "  injectStyle();" +
-          "  // document_start scripts can fire before <head>/<body> exist — keep trying." +
-          "  var early = setInterval(function(){" +
-          "    injectStyle();" +
-          "    if (document.body) { prune(); }" +
-          "    if (document.getElementById('__qwenAppBannerKillerStyle') && document.body) clearInterval(early);" +
-          "  }, 50);" +
-          "  setTimeout(function(){ clearInterval(early); }, 10000);" +
-          "  var mo = new MutationObserver(function(){ injectStyle(); prune(); });" +
-          "  function attach() {" +
-          "    if (document.documentElement) {" +
-          "      mo.observe(document.documentElement, {childList:true, subtree:true});" +
-          "      prune();" +
-          "    } else { document.addEventListener('DOMContentLoaded', attach, {once:true}); }" +
-          "  }" +
-          "  attach();" +
-          "  var _ps = history.pushState.bind(history);" +
-          "  history.pushState = function(){ var r = _ps.apply(history, arguments); setTimeout(prune, 0); return r; };" +
-          "})();\n";
+        String src = readAsset("app_banner_killer.js");
+        if (src == null || src.isEmpty()) {
+            Log.w(TAG, "app_banner_killer.js asset missing or empty");
+            return "";
+        }
+        return src;
     }
 
     // Injects a dismissible banner on Qwen auth pages warning that the login
