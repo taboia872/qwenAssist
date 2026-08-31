@@ -14,7 +14,7 @@
 
 - **Domain whitelist mode** (restricted mode, on by default): only `qwen.ai`, `alicdn.com`, `alibabacloud.com` and `googletagmanager.com` are allowed; other domains and non-HTTPS schemes are blocked.
 - **Login whitelist banner**: a dismissible in-page banner appears on `/login`, `/sign-in`, `/sign-up`, `/auth` and `/oauth` paths whenever the whitelist is enabled, warning that signing in may require temporarily turning the restriction off.
-- **App-promo bar killer**: a `MutationObserver` strips Qwen's "Download the app" promo bar shown to mobile UAs — any fixed/sticky (or top-of-viewport) element linking to `play.google.com` / `apps.apple.com` / `itunes.apple.com` or containing "Download the app" / "Get the app" style copy is removed as soon as it's inserted, including across SPA navigations.
+- **App-promo bar killer**: a `document_start` script hides Qwen's *"Official App provided by Qwen / Get the App"* banner (`#get-the-app`), the full-screen download page (`#downLoad_app`) and the unsupported-system splash (`#low-version-browser`) via a `!important` style rule, with a `MutationObserver` pruning any late-inserted clones and a `pushState` hook covering SPA navigations.
 - **Timezone spoofing** (IANA-aware, DST-correct): full `Date` surface override + `Intl.DateTimeFormat` injection, random timezone per session.
 - **Hardware fingerprint hardening**: `hardwareConcurrency` → 4, `deviceMemory` → 4, WebGL GPU → generic Intel, WebRTC blocked (toggleable).
 - **Sensor blocking**: DeviceOrientation/DeviceMotion neutralised (3 layers).

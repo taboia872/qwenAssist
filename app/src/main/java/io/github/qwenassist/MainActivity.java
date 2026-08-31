@@ -213,57 +213,52 @@ public class MainActivity extends Activity {
         } catch (Exception e) { Log.w(TAG, "app-banner killer registration: " + e.getMessage()); }
     }
 
-    // Removes Qwen's "Download the app" promo bar that appears on mobile UAs.
-    // Strategy: MutationObserver on <body> that prunes any element which links
-    // to an app store (play.google.com / apps.apple.com / itunes.apple.com)
-    // or carries app-download UI text/markers. We pick the outermost sensible
-    // fixed/sticky container to remove so the bar doesn't leave a blank strip.
+    // Removes Qwen's "Get the App" promo bar that appears on mobile UAs.
+    // The banner is rendered as <div id="get-the-app"> (mobile in-feed strip)
+    // plus a fullscreen <div id="downLoad_app"> fallback when opening the
+    // "unsupported system" page. Both have stable IDs, so we (a) hide them
+    // with a !important style rule — survives page-side JS that flips
+    // display back — and (b) prune any late-inserted clones via a
+    // MutationObserver.
     private String buildAppBannerKillerScript() {
         return
           "(function(){" +
           "  if (window.__qwenAppBannerKillerInstalled) return;" +
           "  window.__qwenAppBannerKillerInstalled = true;" +
-          "  var RE_STORE = /(play\\.google\\.com|apps\\.apple\\.com|itunes\\.apple\\.com|appgallery|app\\-store|apps?\\s*(store|gallery))/i;" +
-          "  var RE_TEXT  = /(download\\s+(the\\s+)?app|get\\s+(the\\s+)?app|get\\s+it\\s+on|open\\s+in\\s+(the\\s+)?app|baixar\\s+o\\s+app|baixe\\s+o\\s+aplicativo)/i;" +
-          "  function looksLikeBar(el) {" +
-          "    if (!el || el.nodeType !== 1) return false;" +
-          "    var href = el.querySelector ? (el.querySelector('a[href*=\"play.google.com\"],a[href*=\"apps.apple.com\"],a[href*=\"itunes.apple.com\"]') ? 'store' : null) : null;" +
-          "    if (href === 'store') return true;" +
-          "    var txt = (el.innerText || '').slice(0, 500);" +
-          "    if (!txt) return false;" +
-          "    if (!RE_TEXT.test(txt)) return false;" +
-          "    // Only consider compact bars — not whole pages/articles that merely mention apps." +
-          "    var r = el.getBoundingClientRect();" +
-          "    if (r.height === 0 || r.height > 160) return false;" +
-          "    return true;" +
+          "  var STYLE = '#get-the-app,#downLoad_app,#low-version-browser{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}';" +
+          "  function injectStyle() {" +
+          "    var root = document.head || document.documentElement;" +
+          "    if (!root) return;" +
+          "    if (document.getElementById('__qwenAppBannerKillerStyle')) return;" +
+          "    var s = document.createElement('style');" +
+          "    s.id = '__qwenAppBannerKillerStyle';" +
+          "    s.textContent = STYLE;" +
+          "    root.appendChild(s);" +
           "  }" +
-          "  function findBanner() {" +
-          "    var candidates = document.querySelectorAll('div,header,aside,section');" +
-          "    for (var i = 0; i < candidates.length; i++) {" +
-          "      var el = candidates[i];" +
-          "      if (!looksLikeBar(el)) continue;" +
-          "      // Only fixed/sticky or top-of-viewport elements — those are the promo bars." +
-          "      var cs = getComputedStyle(el);" +
-          "      var r = el.getBoundingClientRect();" +
-          "      if (cs.position === 'fixed' || cs.position === 'sticky' || r.top < 120) return el;" +
-          "    }" +
-          "    return null;" +
+          "  function prune() {" +
+          "    ['get-the-app', 'downLoad_app', 'low-version-browser'].forEach(function(id){" +
+          "      var el = document.getElementById(id);" +
+          "      if (el && el.parentNode) el.parentNode.removeChild(el);" +
+          "    });" +
           "  }" +
-          "  function remove() {" +
-          "    var el = findBanner();" +
-          "    if (el && el.parentNode) { el.parentNode.removeChild(el); }" +
-          "  }" +
-          "  var mo = new MutationObserver(function(){ remove(); });" +
+          "  injectStyle();" +
+          "  // document_start scripts can fire before <head>/<body> exist — keep trying." +
+          "  var early = setInterval(function(){" +
+          "    injectStyle();" +
+          "    if (document.body) { prune(); }" +
+          "    if (document.getElementById('__qwenAppBannerKillerStyle') && document.body) clearInterval(early);" +
+          "  }, 50);" +
+          "  setTimeout(function(){ clearInterval(early); }, 10000);" +
+          "  var mo = new MutationObserver(function(){ injectStyle(); prune(); });" +
           "  function attach() {" +
           "    if (document.documentElement) {" +
           "      mo.observe(document.documentElement, {childList:true, subtree:true});" +
-          "      remove();" +
+          "      prune();" +
           "    } else { document.addEventListener('DOMContentLoaded', attach, {once:true}); }" +
           "  }" +
           "  attach();" +
-          "  // Re-check on soft navigations." +
           "  var _ps = history.pushState.bind(history);" +
-          "  history.pushState = function(){ var r = _ps.apply(history, arguments); setTimeout(remove, 0); return r; };" +
+          "  history.pushState = function(){ var r = _ps.apply(history, arguments); setTimeout(prune, 0); return r; };" +
           "})();\n";
     }
 
