@@ -207,6 +207,64 @@ public class MainActivity extends Activity {
             loginWarningScriptHandler = WebViewCompat.addDocumentStartJavaScript(
                 chatWebView, buildLoginWarningScript(), ALLOW_ALL_ORIGINS);
         } catch (Exception e) { Log.w(TAG, "login warning script registration: " + e.getMessage()); }
+        try {
+            WebViewCompat.addDocumentStartJavaScript(
+                chatWebView, buildAppBannerKillerScript(), ALLOW_ALL_ORIGINS);
+        } catch (Exception e) { Log.w(TAG, "app-banner killer registration: " + e.getMessage()); }
+    }
+
+    // Removes Qwen's "Download the app" promo bar that appears on mobile UAs.
+    // Strategy: MutationObserver on <body> that prunes any element which links
+    // to an app store (play.google.com / apps.apple.com / itunes.apple.com)
+    // or carries app-download UI text/markers. We pick the outermost sensible
+    // fixed/sticky container to remove so the bar doesn't leave a blank strip.
+    private String buildAppBannerKillerScript() {
+        return
+          "(function(){" +
+          "  if (window.__qwenAppBannerKillerInstalled) return;" +
+          "  window.__qwenAppBannerKillerInstalled = true;" +
+          "  var RE_STORE = /(play\\.google\\.com|apps\\.apple\\.com|itunes\\.apple\\.com|appgallery|app\\-store|apps?\\s*(store|gallery))/i;" +
+          "  var RE_TEXT  = /(download\\s+(the\\s+)?app|get\\s+(the\\s+)?app|get\\s+it\\s+on|open\\s+in\\s+(the\\s+)?app|baixar\\s+o\\s+app|baixe\\s+o\\s+aplicativo)/i;" +
+          "  function looksLikeBar(el) {" +
+          "    if (!el || el.nodeType !== 1) return false;" +
+          "    var href = el.querySelector ? (el.querySelector('a[href*=\"play.google.com\"],a[href*=\"apps.apple.com\"],a[href*=\"itunes.apple.com\"]') ? 'store' : null) : null;" +
+          "    if (href === 'store') return true;" +
+          "    var txt = (el.innerText || '').slice(0, 500);" +
+          "    if (!txt) return false;" +
+          "    if (!RE_TEXT.test(txt)) return false;" +
+          "    // Only consider compact bars — not whole pages/articles that merely mention apps." +
+          "    var r = el.getBoundingClientRect();" +
+          "    if (r.height === 0 || r.height > 160) return false;" +
+          "    return true;" +
+          "  }" +
+          "  function findBanner() {" +
+          "    var candidates = document.querySelectorAll('div,header,aside,section');" +
+          "    for (var i = 0; i < candidates.length; i++) {" +
+          "      var el = candidates[i];" +
+          "      if (!looksLikeBar(el)) continue;" +
+          "      // Only fixed/sticky or top-of-viewport elements — those are the promo bars." +
+          "      var cs = getComputedStyle(el);" +
+          "      var r = el.getBoundingClientRect();" +
+          "      if (cs.position === 'fixed' || cs.position === 'sticky' || r.top < 120) return el;" +
+          "    }" +
+          "    return null;" +
+          "  }" +
+          "  function remove() {" +
+          "    var el = findBanner();" +
+          "    if (el && el.parentNode) { el.parentNode.removeChild(el); }" +
+          "  }" +
+          "  var mo = new MutationObserver(function(){ remove(); });" +
+          "  function attach() {" +
+          "    if (document.documentElement) {" +
+          "      mo.observe(document.documentElement, {childList:true, subtree:true});" +
+          "      remove();" +
+          "    } else { document.addEventListener('DOMContentLoaded', attach, {once:true}); }" +
+          "  }" +
+          "  attach();" +
+          "  // Re-check on soft navigations." +
+          "  var _ps = history.pushState.bind(history);" +
+          "  history.pushState = function(){ var r = _ps.apply(history, arguments); setTimeout(remove, 0); return r; };" +
+          "})();\n";
     }
 
     // Injects a dismissible banner on Qwen auth pages warning that the login
