@@ -89,6 +89,7 @@ public class MainActivity extends Activity {
         return false;
     }
     private static boolean restricted = true;
+    private ScriptHandler loginWarningScriptHandler = null;
     private static boolean webrtcBlocked = true;
     private static boolean sensorsBlocked = true;
     private static boolean dntEnabled = true;
@@ -202,6 +203,87 @@ public class MainActivity extends Activity {
             tzScriptHandler = WebViewCompat.addDocumentStartJavaScript(
                 chatWebView, buildTzSpoofScript(), ALLOW_ALL_ORIGINS);
         } catch (Exception e) { Log.w(TAG, "tz spoof script registration: " + e.getMessage()); }
+        try {
+            loginWarningScriptHandler = WebViewCompat.addDocumentStartJavaScript(
+                chatWebView, buildLoginWarningScript(), ALLOW_ALL_ORIGINS);
+        } catch (Exception e) { Log.w(TAG, "login warning script registration: " + e.getMessage()); }
+    }
+
+    // Injects a dismissible banner on Qwen auth pages warning that the login
+    // flow may require temporarily disabling the domain whitelist (Settings →
+    // "Block non-HTTPS traffic" toggle) because OAuth providers (Google etc.)
+    // are blocked in restricted mode. The banner only appears on /login,
+    // /sign-in, /sign-up, /auth, or /oauth paths while restricted=on; reads
+    // the live restricted flag via a localStorage mirror updated by Java
+    // before each navigation.
+    private String buildLoginWarningScript() {
+        String bannerText;
+        try {
+            bannerText = getString(R.string.login_whitelist_warning);
+        } catch (Exception e) {
+            bannerText = "Login may require temporarily disabling the domain whitelist (menu → Settings). Re-enable it after signing in.";
+        }
+        String escapedText = bannerText.replace("\\", "\\\\").replace("'", "\\'");
+        return
+          "(function(){" +
+          "  try {" +
+          "    if (window.__qwenLoginBannerInstalled) return;" +
+          "    window.__qwenLoginBannerInstalled = true;" +
+          "    function isLoginPath() {" +
+          "      var p = (location.pathname || '').toLowerCase();" +
+          "      return p.indexOf('login') !== -1 || p.indexOf('sign-in') !== -1 ||" +
+          "             p.indexOf('signin') !== -1 || p.indexOf('sign-up') !== -1 ||" +
+          "             p.indexOf('signup') !== -1 || p.indexOf('/auth') !== -1 ||" +
+          "             p.indexOf('oauth') !== -1;" +
+          "    }" +
+          "    function restrictedOn() {" +
+          "      try { return localStorage.getItem('__qwen_restricted') !== '0'; } catch(e) { return true; }" +
+          "    }" +
+          "    var banner = null;" +
+          "    function removeBanner() { if (banner && banner.parentNode) banner.parentNode.removeChild(banner); banner = null; }" +
+          "    function maybeShow() {" +
+          "      if (!isLoginPath() || !restrictedOn()) { removeBanner(); return; }" +
+          "      if (banner) return;" +
+          "      banner = document.createElement('div');" +
+          "      banner.setAttribute('style'," +
+          "        'position:fixed;top:0;left:0;right:0;z-index:2147483647;'" +
+          "        +'background:rgba(120,53,15,0.95);color:#FEF3C7;padding:10px 40px 10px 14px;'" +
+          "        +'font:13px/1.4 -apple-system,sans-serif;text-align:center;'" +
+          "        +'box-shadow:0 2px 8px rgba(0,0,0,0.4);border-bottom:1px solid rgba(255,255,255,0.2);');" +
+          "      banner.textContent = '\\u26A0\\uFE0F ' + '" + escapedText + "';" +
+          "      var close = document.createElement('button');" +
+          "      close.textContent = '\\u00D7';" +
+          "      close.setAttribute('style'," +
+          "        'position:absolute;right:8px;top:50%;transform:translateY(-50%);'" +
+          "        +'background:transparent;border:none;color:#FEF3C7;font-size:18px;cursor:pointer;padding:4px 8px;');" +
+          "      close.addEventListener('click', removeBanner);" +
+          "      banner.appendChild(close);" +
+          "      (document.body || document.documentElement).appendChild(banner);" +
+          "    }" +
+          "    // Wait for body to exist, then check; also re-check on SPA navigations." +
+          "    function schedule() {" +
+          "      if (document.body) { maybeShow(); }" +
+          "      else { document.addEventListener('DOMContentLoaded', maybeShow, {once:true}); }" +
+          "    }" +
+          "    schedule();" +
+          "    var _pushState = history.pushState.bind(history);" +
+          "    history.pushState = function() { var r = _pushState.apply(history, arguments); setTimeout(maybeShow, 0); return r; };" +
+          "    window.addEventListener('popstate', function(){ setTimeout(maybeShow, 0); });" +
+          "    // Other tabs shouldn't ever see this page, but if localStorage is" +
+          "    // toggled mid-session, hide promptly." +
+          "    setInterval(maybeShow, 2000);" +
+          "  } catch(e) { /* banner is best-effort */ }" +
+          "})();\n";
+    }
+
+    // Called by Java-side toggle changes so the banner script can read the
+    // current "restricted" flag from page context (localStorage survives SPA
+    // navigations within the same tab).
+    private void syncRestrictedToPage() {
+        if (chatWebView == null) return;
+        chatWebView.evaluateJavascript(
+            "try{localStorage.setItem('__qwen_restricted','" + (restricted ? "1" : "0") + "');}catch(e){}",
+            null);
     }
 
     // True when addDocumentStartJavaScript is supported on this WebView — the
@@ -274,7 +356,7 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(context)
                 .setTitle("Settings")
                 .setMultiChoiceItems(options, checked, (dialog, which, isChecked) -> {
-                    if (which == 0) restricted = isChecked;
+                    if (which == 0) { restricted = isChecked; syncRestrictedToPage(); }
                     else if (which == 1) webrtcBlocked = isChecked;
                     else if (which == 2) sensorsBlocked = isChecked;
                     else if (which == 3) dntEnabled = isChecked;
@@ -528,6 +610,10 @@ public class MainActivity extends Activity {
                 if (chatCookieManager != null) {
                     chatCookieManager.flush();
                 }
+                // Keep the page-side mirror of the restricted flag fresh so
+                // the login banner reflects the current setting without a
+                // full reload.
+                syncRestrictedToPage();
             }
 
             @Override

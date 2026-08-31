@@ -1,12 +1,19 @@
 # QwenAssist
 
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="QwenAssist icon">
+</p>
+
 **QwenAssist** is a privacy-hardened Android WebView wrapper for **Qwen Chat** (https://chat.qwen.ai/), based on testAssist.
+
+> ⚠️ **Login:** the restricted-mode domain whitelist blocks Google/Microsoft OAuth endpoints. When you reach the Qwen sign-in page, the app shows a banner reminding you to temporarily disable the whitelist (`menu → Settings → "Block non-HTTPS traffic"`), complete the login, then re-enable it.
 
 ---
 
 ## Features
 
 - **Domain whitelist mode** (restricted mode, on by default): only `qwen.ai`, `alicdn.com`, `alibabacloud.com` and `googletagmanager.com` are allowed; other domains and non-HTTPS schemes are blocked.
+- **Login whitelist banner**: a dismissible in-page banner appears on `/login`, `/sign-in`, `/sign-up`, `/auth` and `/oauth` paths whenever the whitelist is enabled, warning that signing in may require temporarily turning the restriction off.
 - **Timezone spoofing** (IANA-aware, DST-correct): full `Date` surface override + `Intl.DateTimeFormat` injection, random timezone per session.
 - **Hardware fingerprint hardening**: `hardwareConcurrency` → 4, `deviceMemory` → 4, WebGL GPU → generic Intel, WebRTC blocked (toggleable).
 - **Sensor blocking**: DeviceOrientation/DeviceMotion neutralised (3 layers).

@@ -11,4 +11,5 @@
     <string name="all_urls">所有URL都允许</string>
     <string name="urls_restricted">URL受限</string>
     <string name="url_copied">URL已复制</string>
+    <string name="login_whitelist_warning">登录可能需要暂时停用域名白名单（菜单 → 设置 → "阻止非 HTTPS 流量"）。登录完成后请重新启用。</string>
 </resources>

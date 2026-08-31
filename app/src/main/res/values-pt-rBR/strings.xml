@@ -16,5 +16,6 @@
     <string name="confirm_no">Cancelar</string>
     <string name="data_cleared">Dados limpos. Recarregando…</string>
     <string name="about_title">Sobre o QwenAssist</string>
+    <string name="login_whitelist_warning">O login pode exigir desativar temporariamente a whitelist de domínios (menu → Configurações → "Bloquear tráfego não-HTTPS"). Reative após entrar.</string>
     <string name="about_message">QwenAssist v1.0.0\n\nUm wrapper WebView endurecido para o Qwen Chat (chat.qwen.ai).\n\nBaseado em testAssist / gptassist por @woheller69 e geminiAssist por @AcideFluorhydrique.\n\nLicença: GPL-3.0</string>
 </resources>

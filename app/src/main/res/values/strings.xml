@@ -17,5 +17,6 @@
     <string name="confirm_no">Cancel</string>
     <string name="data_cleared">All data cleared. Reloading…</string>
     <string name="about_title">About QwenAssist</string>
+    <string name="login_whitelist_warning">Login may require temporarily disabling the domain whitelist (menu → Settings → "Block non-HTTPS traffic"). Re-enable it after signing in.</string>
     <string name="about_message">QwenAssist v1.0.0\n\nA hardened WebView wrapper for Qwen Chat (chat.qwen.ai).\n\nFeatures: URL bar, settings dialog with toggles for HTTPS-only, domain whitelist, WebRTC, sensors, DNT, timezone spoofing (IANA-aware, DST-correct, full Date surface spoof via document_start injection), WebGL GPU spoofing, CPU/RAM spoofing (4/4), auto-hide arrow button, glassmorphism slide menu.\n\nNote: X-Requested-With header cannot be stripped without breaking page loading (Android WebView limitation).\n\nBased on testAssist / gptassist by @woheller69 and geminiAssist by @AcideFluorhydrique.\n\nLicense: GPL-3.0</string>
 </resources>
