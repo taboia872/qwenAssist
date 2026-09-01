@@ -74,11 +74,14 @@ public class MainActivity extends Activity {
     // Domain whitelist for restricted mode. Subdomains of these are allowed.
     private static final String[] ALLOWED_DOMAINS = {
             "qwen.ai",             // chat.qwen.ai, pre-chat.qwen.ai (chat + API)
-            "alicdn.com",          // o/g/assets/img.alicdn.com (static CDN, captcha frontend)
-            "alibabacloud.com"       // Alibaba Cloud backend endpoints
+            "alicdn.com",          // o/g/assets/img.at.alicdn.com (static CDN, AWSC/Baxia scripts)
+            "alibabacloud.com",    // Alibaba Cloud backend endpoints
+            "alibaba.com",         // tdum.alibaba.com (Baxia dynamic DSS), fourier.alibaba.com (AWSC tracker)
+            "taobao.com",          // fourier.taobao.com (AWSC tracker fallback)
+            "mmstat.com"           // gm.mmstat.com (Baxia telemetry — required or puzzle stalls)
             // NOTE: ALL Google domains are blocked by default (per user rule),
-            // including googletagmanager.com analytics, until testing proves
-            // something breaks without them.
+            // including googletagmanager.com, googlesyndication.com, googleapis.com,
+            // google.com, doubleclick.net, gstatic.com, googleusercontent.com.
     };
 
     private static boolean isAllowedDomain(String host) {
