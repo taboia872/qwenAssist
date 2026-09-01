@@ -43,6 +43,8 @@ import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import androidx.webkit.URLUtilCompat;
+import androidx.webkit.UserAgentMetadata;
+import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import androidx.webkit.ScriptHandler;
@@ -393,6 +395,7 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Apply & Reload", (dialog, which) -> {
                     saveSettings();
                     chatWebSettings.setUserAgentString(modUserAgent());
+                    applyUserAgentMetadata();
                     // Re-register document_start scripts so the new toggle
                     // values take effect (the script body embeds the payload).
                     installDocumentStartScripts();
@@ -727,6 +730,7 @@ public class MainActivity extends Activity {
         chatWebSettings.setSaveFormData(false);
         chatWebSettings.setGeolocationEnabled(false);
         chatWebSettings.setUserAgentString(modUserAgent());
+        applyUserAgentMetadata();
 
         // Register document_start scripts (runs before any page script on every
         // navigation). The script source reflects current toggle state, so a
@@ -840,10 +844,55 @@ public class MainActivity extends Activity {
     public String modUserAgent() {
         if (desktopModeEnabled) {
             // Generic Windows Chrome desktop UA — blends with desktop users
-            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
         }
         // Default: generic mobile Chrome on Android (matches the dominant WebView population)
         return "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36";
+    }
+
+    /**
+     * Build UserAgentMetadata (UA-CH / navigator.userAgentData) matching the
+     * current User-Agent string. Without this, the WebView still ships its
+     * default Client Hints (mobile=false or platform=unset), which contradicts
+     * our spoofed mobile UA. Alibaba's AWSC sees that contradiction and flags
+     * the session, which is why creating a new chat fails in mobile mode but
+     * works in desktop mode (desktop UA + default metadata happen to be
+     * mutually consistent).
+     */
+    private void applyUserAgentMetadata() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+            return; // older WebView — Client Hints can't be controlled here
+        }
+        try {
+            boolean mobile = !desktopModeEnabled;
+            UserAgentMetadata.BrandVersion.Builder brandBuilder =
+                    new UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Chromium").setMajorVersion("152").setFullVersion("152.0.0.0");
+            UserAgentMetadata.BrandVersion chromium = brandBuilder.build();
+
+            UserAgentMetadata.BrandVersion chromeBrand =
+                    new UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Google Chrome").setMajorVersion("152").setFullVersion("152.0.0.0").build();
+
+            UserAgentMetadata.BrandVersion notABrand =
+                    new UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Not(A:Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build();
+
+            UserAgentMetadata.Builder ub = new UserAgentMetadata.Builder()
+                    .setBrandVersionList(java.util.Arrays.asList(chromium, chromeBrand, notABrand))
+                    .setFullVersion("152.0.0.0")
+                    .setPlatform(mobile ? "Android" : "Windows")
+                    .setPlatformVersion(mobile ? "10.0.0" : "10.0.0")
+                    .setArchitecture(mobile ? "" : "x86")
+                    .setModel("")        // empty string = no device leak, matches "K" pattern
+                    .setMobile(mobile)
+                    .setBitness(mobile ? "" : "64")
+                    .setWow64(false);
+
+            WebSettingsCompat.setUserAgentMetadata(chatWebSettings, ub.build());
+        } catch (Exception e) {
+            Log.w(TAG, "setUserAgentMetadata failed: " + e.getMessage());
+        }
     }
 
     private android.animation.ValueAnimator paddingAnimator;
