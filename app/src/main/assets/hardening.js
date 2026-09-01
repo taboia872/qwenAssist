@@ -19,31 +19,70 @@
       navigator.getBattery = function () { return Promise.reject(new Error('Battery API disabled')); };
     }
 
-    // DeviceOrientation / DeviceMotion — conditional on sensorsBlocked
+    // DeviceOrientation / DeviceMotion — spoof with fixed "device lying flat" values.
+    // Blocking these APIs outright breaks Qwen's new-chat page (it waits for an
+    // orientation event during init, then never renders). Instead, keep the APIs
+    // functional and emit one synthetic event with neutral values shortly after
+    // load, so event listeners resolve and the page continues rendering.
     if (S.sensorsBlocked) {
-      if (window.DeviceOrientationEvent) {
-        DeviceOrientationEvent.prototype.addEventListener = function () {};
-        DeviceOrientationEvent.prototype.dispatchEvent = function () { return false; };
-        Object.defineProperty(window, 'DeviceOrientationEvent', { value: undefined, configurable: false, writable: false });
+      function fireSensorEvents() {
+        try {
+          var orientEvent;
+          try {
+            orientEvent = new DeviceOrientationEvent('deviceorientation', {
+              alpha: 0, beta: 90, gamma: 0, absolute: false
+            });
+          } catch (e) {
+            // Fallback for browsers without the constructor
+            orientEvent = document.createEvent('Event');
+            orientEvent.initEvent('deviceorientation', true, false);
+            orientEvent.alpha = 0; orientEvent.beta = 90; orientEvent.gamma = 0;
+            orientEvent.absolute = false;
+          }
+          window.dispatchEvent(orientEvent);
+        } catch (_) {}
+        try {
+          var motionEvent;
+          try {
+            motionEvent = new DeviceMotionEvent('devicemotion', {
+              acceleration: {x: 0, y: 0, z: 0},
+              accelerationIncludingGravity: {x: 0, y: 0, z: 9.8},
+              rotationRate: {alpha: 0, beta: 0, gamma: 0},
+              interval: 16
+            });
+          } catch (e) {
+            motionEvent = document.createEvent('Event');
+            motionEvent.initEvent('devicemotion', true, false);
+            motionEvent.acceleration = {x:0,y:0,z:0};
+            motionEvent.accelerationIncludingGravity = {x:0,y:0,z:9.8};
+            motionEvent.rotationRate = {alpha:0,beta:0,gamma:0};
+            motionEvent.interval = 16;
+          }
+          window.dispatchEvent(motionEvent);
+        } catch (_) {}
       }
-      if (window.ondeviceorientation) window.ondeviceorientation = null;
-      Object.defineProperty(window, 'ondeviceorientation', { get: function () { return null; }, set: function () {}, configurable: true });
-      if (window.DeviceMotionEvent) {
-        DeviceMotionEvent.prototype.addEventListener = function () {};
-        DeviceMotionEvent.prototype.dispatchEvent = function () { return false; };
-        Object.defineProperty(window, 'DeviceMotionEvent', { value: undefined, configurable: false, writable: false });
+      // Fire once after the page has had a chance to install its listeners.
+      // Re-fire a few times in case the page subscribes late (Qwen does this
+      // when creating a new chat — navigation to /c/<id> rebinds listeners).
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(fireSensorEvents, 150);
+      } else {
+        window.addEventListener('DOMContentLoaded', function () { setTimeout(fireSensorEvents, 150); }, {once: true});
       }
-      if (window.ondevicemotion) window.ondevicemotion = null;
-      Object.defineProperty(window, 'ondevicemotion', { get: function () { return null; }, set: function () {}, configurable: true });
-      var origAddEventListener = window.addEventListener.bind(window);
-      window.addEventListener = function (type, listener, options) {
-        if (type === 'deviceorientation' || type === 'devicemotion' || type === 'deviceorientationabsolute') return;
-        return origAddEventListener(type, listener, options);
-      };
+      setTimeout(fireSensorEvents, 800);   // catch late subscribers
+      setTimeout(fireSensorEvents, 2000);  // catch very late subscribers
+
+      // requestPermission must exist and resolve "granted" for iOS-style checks
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission = function () { return Promise.resolve('granted'); };
+      }
+      if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission = function () { return Promise.resolve('granted'); };
+      }
     }
 
-    // Vibration
-    if (navigator.vibrate) navigator.vibrate = function () { return false; };
+    // Vibration — no-op but report success (mobile web apps check result)
+    if (navigator.vibrate) navigator.vibrate = function () { return true; };
 
     // Network connection info
     if (navigator.connection) Object.defineProperty(navigator, 'connection', { value: undefined });
