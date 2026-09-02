@@ -886,7 +886,7 @@ public class MainActivity extends Activity {
                     .setArchitecture(mobile ? "" : "x86")
                     .setModel("")        // empty string = no device leak, matches "K" pattern
                     .setMobile(mobile)
-                    .setBitness(mobile ? "" : "64")
+                    .setBitness(mobile ? 0 : 64)
                     .setWow64(false);
 
             WebSettingsCompat.setUserAgentMetadata(chatWebSettings, ub.build());
