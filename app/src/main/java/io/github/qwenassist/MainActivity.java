@@ -30,6 +30,7 @@ import android.webkit.CookieManager;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -219,6 +220,14 @@ public class MainActivity extends Activity {
                     chatWebView, killer, ALLOW_ALL_ORIGINS);
             }
         } catch (Exception e) { Log.w(TAG, "app-banner killer registration: " + e.getMessage()); }
+        // Tactical UA swap — only relevant when running in mobile profile.
+        // In desktop mode the UA is already desktop, so the hook is a no-op.
+        if (!desktopModeEnabled) {
+            try {
+                WebViewCompat.addDocumentStartJavaScript(
+                    chatWebView, SEND_TAP_HOOK_JS, ALLOW_ALL_ORIGINS);
+            } catch (Exception e) { Log.w(TAG, "send-tap hook registration: " + e.getMessage()); }
+        }
     }
 
     // Aggressive app-promo banner killer — loaded from assets/app_banner_killer.js.
@@ -731,6 +740,7 @@ public class MainActivity extends Activity {
         chatWebSettings.setGeolocationEnabled(false);
         chatWebSettings.setUserAgentString(modUserAgent());
         applyUserAgentMetadata();
+        chatWebView.addJavascriptInterface(new QwenBridge(), "__qwenBridge");
 
         // Register document_start scripts (runs before any page script on every
         // navigation). The script source reflects current toggle state, so a
@@ -896,6 +906,97 @@ public class MainActivity extends Activity {
     }
 
     private android.animation.ValueAnimator paddingAnimator;
+
+    // ── Tactical UA swap (mobile-UA workaround for Qwen new-chat) ──────────
+    // Qwen's /api/v2/chats/new + /api/v2/chat/completions flap our session
+    // to a blocked state when the UA says "mobile" but other signals (UA-CH,
+    // userAgentData, screen density vs UA-pattern, etc) disagree. Desktop UA
+    // passes cleanly. Rather than run the whole app as desktop (which ruins
+    // the mobile UI and leaks a desktop-shaped fingerprint on a touch device),
+    // we swap UA/UA-CH to desktop for ~2.5s around message-submit, only when
+    // the user is in mobile mode. The JS bridge (sendTapHook) fires on
+    // pointerdown/Enter on the send control with capture=true, BEFORE Qwen's
+    // own submit handler runs, so the follow-up xhr/fetch carries the desktop
+    // UA. The revert timer restores mobile UA even if the request never fires
+    // (offline, form validation bug, etc).
+    private final android.os.Handler uaSwapHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private volatile boolean uaSwappedToDesktop = false;
+    private static final long UA_SWAP_HOLD_MS = 2500L;
+
+    private final Runnable uaRevertRunnable = new Runnable() {
+        @Override public void run() {
+            if (!uaSwappedToDesktop) return;
+            uaSwappedToDesktop = false;
+            chatWebSettings.setUserAgentString(modUserAgent());
+            applyUserAgentMetadata();
+        }
+    };
+
+    private void swapUaToDesktopTemporarily() {
+        // Cancel any pending revert — rapid back-to-back submits extend the window.
+        uaSwapHandler.removeCallbacks(uaRevertRunnable);
+        if (!uaSwappedToDesktop) {
+            uaSwappedToDesktop = true;
+            chatWebSettings.setUserAgentString(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+            );
+            // UA-CH must match or AWSC sees the contradiction.
+            try {
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+                    UserAgentMetadata.BrandVersion chromium = new UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Chromium").setMajorVersion("152").setFullVersion("152.0.0.0").build();
+                    UserAgentMetadata.BrandVersion chromeBrand = new UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Google Chrome").setMajorVersion("152").setFullVersion("152.0.0.0").build();
+                    UserAgentMetadata.BrandVersion notABrand = new UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Not(A:Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build();
+                    UserAgentMetadata meta = new UserAgentMetadata.Builder()
+                            .setBrandVersionList(java.util.Arrays.asList(chromium, chromeBrand, notABrand))
+                            .setFullVersion("152.0.0.0")
+                            .setPlatform("Windows").setPlatformVersion("10.0.0")
+                            .setArchitecture("x86").setModel("")
+                            .setMobile(false).setBitness(64).setWow64(false)
+                            .build();
+                    WebSettingsCompat.setUserAgentMetadata(chatWebSettings, meta);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "UA-CH desktop swap failed: " + e.getMessage());
+            }
+        }
+        uaSwapHandler.postDelayed(uaRevertRunnable, UA_SWAP_HOLD_MS);
+    }
+
+    /** Bridge called from JS on message-submit events. */
+    public class QwenBridge {
+        @JavascriptInterface
+        public void onSubmitGesture() {
+            runOnUiThread(() -> swapUaToDesktopTemporarily());
+        }
+    }
+
+    /** JS injected at document_start: detect send-gesture BEFORE Qwen's handler runs. */
+    private static final String SEND_TAP_HOOK_JS =
+        "(function(){" +
+        "  if (window.__qwenSendHookInstalled) return;" +
+        "  window.__qwenSendHookInstalled = true;" +
+        "  function hit(){" +
+        "    try { window.__qwenBridge && window.__qwenBridge.onSubmitGesture(); } catch(_){}" +
+        "  }" +
+        "  function matches(el){" +
+        "    if (!el || !el.className) return false;" +
+        "    var c = ('' + el.className).toLowerCase();" +
+        "    return c.indexOf('send') !== -1 || c.indexOf('submit') !== -1;" +
+        "  }" +
+        "  document.addEventListener('pointerdown', function(e){" +
+        "    var t = e.target;" +
+        "    for (var i = 0; i < 4 && t; i++) { if (matches(t)) { hit(); return; } t = t.parentElement; }" +
+        "  }, true);" +
+        "  document.addEventListener('keydown', function(e){" +
+        "    if (e.key === 'Enter' && !e.shiftKey && document.activeElement && document.activeElement.tagName === 'TEXTAREA') {" +
+        "      hit();" +
+        "    }" +
+        "  }, true);" +
+        "})();";
+    // ── end tactical UA swap ────────────────────────────────────────────────
 
     private void animatePadding(final android.view.View v,
                                 final int targetLeft, final int targetTop,
